@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spring AI Agent Dev"
+  short_description: "Spring Boot Spring AI agent delivery guide"
+  default_prompt: "Use $spring-ai-agent-dev to design or implement a Spring AI based Java agent system with advisors, memory, tools, RAG, observability, and governance."

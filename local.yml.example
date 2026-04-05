@@ -1,0 +1,12 @@
+spring:
+  ai:
+    model:
+      chat: openai
+    openai:
+      api-key: REPLACE_WITH_YOUR_API_KEY
+      base-url: https://api.moonshot.cn
+      chat:
+        options:
+          model: kimi-k2.5
+          temperature: 0.2
+

@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: springai-demo1
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-Bb5mbL7RxQeGGWkjxRFQNE9L47ko11bMGaVysW1JISRey6IE}
+      base-url: ${OPENAI_BASE_URL:https://api.moonshot.cn/v1}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:kimi-k2.5}
+          temperature: 0.2
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+assistant:
+  knowledge-base:
+    resource-pattern: classpath*:knowledge-base/**/*.md
+    top-k: 4
+    min-score: 0.55
+    chunk-size: 700

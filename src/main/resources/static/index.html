@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Signal Deck | AI 知识库问答控制台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app-shell" id="appShell">
+        <header class="topbar panel">
+            <div class="brand-cluster">
+                <div class="brand-mark" aria-hidden="true">
+                    <i class="fa-solid fa-brain"></i>
+                </div>
+                <div>
+                    <p class="eyebrow">Spring AI / 中文知识控制台</p>
+                    <h1>AI 知识库问答控制台</h1>
+                    <p class="subhead">先提问，再按需展开证据与轨迹，帮助业务同事更快拿到可理解的答案。</p>
+                </div>
+            </div>
+            <div class="toolbar-actions">
+                <button class="toolbar-button" id="themeToggle" type="button" aria-pressed="false">
+                    <i class="fa-regular fa-moon"></i>
+                    <span>深色模式</span>
+                </button>
+                <button class="toolbar-button" id="focusToggle" type="button" aria-pressed="false">
+                    <i class="fa-solid fa-expand"></i>
+                    <span>专注对话</span>
+                </button>
+            </div>
+            <section class="runtime-banner" id="runtimeBanner" data-status="degraded" aria-live="polite">
+                <div class="runtime-banner-main">
+                    <span class="runtime-dot" aria-hidden="true"></span>
+                    <strong id="runtimeStatusLabel">降级模式</strong>
+                </div>
+                <p id="runtimeStatusMessage">正在检查运行状态...</p>
+            </section>
+            <div class="meta-strip">
+                <article class="meta-card">
+                    <span class="meta-label">当前会话</span>
+                    <strong id="conversationBadge">初始化中</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">当前阶段</span>
+                    <strong id="currentStageLabel">待命</strong>
+                </article>
+                <article class="meta-card">
+                    <span class="meta-label">执行状态</span>
+                    <strong id="requestStatusBadge">待提问</strong>
+                </article>
+            </div>
+        </header>
+
+        <main class="console-grid">
+            <section class="panel panel-shell left-panel" id="leftPanelShell">
+                <div class="panel-header">
+                    <div class="panel-title-group">
+                        <div class="panel-icon"><i class="fa-solid fa-folder-tree"></i></div>
+                        <div>
+                            <h2>知识库文档树</h2>
+                            <p>先选范围，再提问；只在需要时展开细节。</p>
+                        </div>
+                    </div>
+                    <div class="panel-header-actions">
+                        <span class="panel-badge" id="documentCount">0 份文档</span>
+                        <button class="icon-button" id="toggleLeftPanel" type="button" aria-expanded="true" aria-controls="leftPanelBody">
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body" id="leftPanelBody">
+                    <label class="filter-input" for="docFilterInput">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input id="docFilterInput" type="search" placeholder="按标题、摘要、路径筛选文档">
+                    </label>
+                    <div class="tree-shell">
+                        <div class="tree-root-card">
+                            <div>
+                                <p class="tree-root-label" id="treeRootLabel">默认知识库</p>
+                                <span class="tree-root-meta" id="treeRootMeta">0 个节点</span>
+                            </div>
+                            <span class="tree-root-chip" id="treeRootChip">加载中</span>
+                        </div>
+                        <div class="doc-tree" id="catalogTree">
+                            <div class="empty-state">正在加载知识库文档...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel center-panel">
+                <div class="panel-header center-header">
+                    <div class="panel-title-group">
+                        <div class="panel-icon"><i class="fa-regular fa-comments"></i></div>
+                        <div>
+                            <h2>问答对话区</h2>
+                            <p>把问题说清楚，系统会在答案、证据和执行轨迹之间自动联动。</p>
+                        </div>
+                    </div>
+                    <div class="conversation-chip">多阶段问答</div>
+                </div>
+
+                <div class="focus-notice" id="focusNotice" hidden>
+                    <span>当前已进入专注对话模式，文档树和右侧面板已隐藏。</span>
+                    <button type="button" class="inline-action" id="focusNoticeExit">退出专注</button>
+                </div>
+
+                <section class="journey-panel" id="journeyPanel" aria-label="提问引导">
+                    <div class="journey-header">
+                        <div>
+                            <span class="eyebrow">Quick Start</span>
+                            <h3>把一次问答拆成 3 个轻动作</h3>
+                        </div>
+                        <span class="conversation-chip">降低首问门槛</span>
+                    </div>
+                    <div class="journey-grid">
+                        <article class="journey-step">
+                            <span class="journey-step-index">01</span>
+                            <h3>先限定范围</h3>
+                            <p>可直接提问，也可先点左侧文档，让回答优先引用指定资料。</p>
+                        </article>
+                        <article class="journey-step">
+                            <span class="journey-step-index">02</span>
+                            <h3>再补充上下文</h3>
+                            <p>写清系统名、时间范围、环境或目标动作，检索命中率会更高。</p>
+                        </article>
+                        <article class="journey-step">
+                            <span class="journey-step-index">03</span>
+                            <h3>最后快速复核</h3>
+                            <p>回答出来后直接点证据、看轨迹，几秒内判断答案能不能用。</p>
+                        </article>
+                    </div>
+                    <div class="journey-status">
+                        <span class="journey-stat" id="docSelectionState">未限定文档</span>
+                        <span class="journey-stat" id="questionReadinessState">等待输入问题</span>
+                        <span class="journey-stat is-active" id="shortcutHintState">Ctrl / ⌘ + Enter 发送</span>
+                    </div>
+                </section>
+
+                <div class="stage-strip" id="stageStrip"></div>
+
+                <button type="button" class="inline-action prompt-toggle" id="promptToggle" hidden aria-expanded="false">
+                    展开示例问题
+                </button>
+
+                <div class="prompt-row" id="promptGrid">
+                    <button type="button" class="prompt-chip" data-question="维护窗口是什么时候？">维护窗口</button>
+                    <button type="button" class="prompt-chip" data-question="标准支持的响应时间是多久？">支持响应时间</button>
+                    <button type="button" class="prompt-chip" data-question="申请生产环境访问权限需要满足什么条件？">生产访问条件</button>
+                    <button type="button" class="prompt-chip" data-question="如果 Okta 重置后仍然无法登录，应该怎么处理？">登录异常处理</button>
+                </div>
+
+                <div class="chat-shell">
+                    <div class="chat-log" id="chatLog" aria-live="polite">
+                        <article class="message-row is-assistant">
+                            <div class="message-card">
+                                <div class="message-meta">
+                                    <span class="message-role">助手</span>
+                                    <span class="message-tag">系统引导</span>
+                                </div>
+                                <p class="message-body">欢迎使用中文知识库问答控制台。你可以先提问，也可以先选中左侧文档，再让系统优先参考它来回答。</p>
+                            </div>
+                        </article>
+                    </div>
+                    <button type="button" class="jump-latest" id="jumpLatestButton" hidden>
+                        <i class="fa-solid fa-arrow-down"></i>
+                        <span>回到最新消息</span>
+                    </button>
+                </div>
+
+                <form class="composer" id="composerForm">
+                    <div class="composer-context" id="composerContext" hidden>
+                        <div>
+                            <span class="meta-label">当前参考文档</span>
+                            <strong id="selectedDocLabel">未选择</strong>
+                            <p class="helper-inline" id="selectedDocPath"></p>
+                        </div>
+                        <button type="button" class="inline-action" id="clearDocContext">清除</button>
+                    </div>
+                    <div class="composer-assist" id="composerAssist">
+                        <div class="assist-copy">
+                            <strong class="assist-title" id="questionQualityLabel">先写问题，再补充范围</strong>
+                            <p class="helper-inline" id="questionQualityHint">建议补充系统名、时间范围、环境或目标动作，系统会更容易命中证据。</p>
+                        </div>
+                        <div class="assist-meta">
+                            <span class="assist-stat" id="draftStatusBadge">草稿为空</span>
+                            <span class="assist-stat" id="questionLengthBadge">0 字</span>
+                            <button type="button" class="inline-action" id="clearDraftButton">清空输入</button>
+                        </div>
+                    </div>
+                    <label class="sr-only" for="questionInput">请输入你的问题</label>
+                    <textarea id="questionInput" name="question" rows="5" placeholder="请输入问题，例如：标准支持的响应时间是多少？" required></textarea>
+                    <div class="composer-footer">
+                        <p class="helper-text" id="helperText"><i class="fa-solid fa-circle-info"></i> <span id="helperTextContent">回答会同时给出可信度、引用证据和可继续追问的建议。</span></p>
+                        <button type="submit" class="send-button" id="submitButton">
+                            <i class="fa-solid fa-paper-plane"></i>
+                            <span>发送提问</span>
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <aside class="right-column">
+                <div class="detail-tabs" id="detailTabs" hidden>
+                    <button class="detail-tab is-active" id="detailTabSources" type="button" aria-selected="true">证据</button>
+                    <button class="detail-tab" id="detailTabTrace" type="button" aria-selected="false">轨迹</button>
+                </div>
+                <section class="panel panel-shell evidence-panel" id="evidencePanelShell">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <div class="panel-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+                            <div>
+                                <h2>证据面板</h2>
+                                <p>点击回答中的引用按钮，可直接定位对应证据片段。</p>
+                            </div>
+                        </div>
+                        <button class="icon-button" id="toggleEvidencePanel" type="button" aria-expanded="true" aria-controls="evidencePanelBody">
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                    </div>
+                    <div class="panel-body" id="evidencePanelBody">
+                        <div class="source-list" id="sourceList">
+                            <div class="empty-state">当前还没有检索到证据。</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="panel panel-shell audit-panel" id="auditPanelShell">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <div class="panel-icon"><i class="fa-solid fa-timeline"></i></div>
+                            <div>
+                                <h2>审计轨迹</h2>
+                                <p>按需查看每个阶段的执行摘要与降级提示。</p>
+                            </div>
+                        </div>
+                        <button class="icon-button" id="toggleAuditPanel" type="button" aria-expanded="true" aria-controls="auditPanelBody">
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                    </div>
+                    <div class="panel-body" id="auditPanelBody">
+                        <div class="trace-list" id="traceList">
+                            <div class="empty-state">发起一次提问后，这里会显示完整的代理执行轨迹。</div>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </main>
+    </div>
+
+    <script src="/app.js" defer></script>
+</body>
+</html>

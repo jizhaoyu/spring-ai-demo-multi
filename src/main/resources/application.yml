@@ -1,0 +1,28 @@
+spring:
+  config:
+    import: optional:file:./local.yml
+  application:
+    name: springai-demo1
+  ai:
+    model:
+      chat: none
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+logging:
+  level:
+    org.springframework.ai.retry.autoconfigure.SpringAiRetryAutoConfiguration: error
+assistant:
+  knowledge-base:
+    resource-pattern: classpath*:knowledge-base/**/*.md
+    top-k: 4
+    min-score: 0.55
+    chunk-size: 700
