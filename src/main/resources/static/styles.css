@@ -594,6 +594,95 @@ input:focus-visible {
     color: var(--text-muted);
 }
 
+.journey-panel {
+    display: grid;
+    gap: 16px;
+    padding: 18px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(26, 54, 93, 0.05), rgba(255, 255, 255, 0.94));
+}
+
+.journey-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+}
+
+.journey-header h3,
+.journey-step h3,
+.assist-title {
+    color: var(--primary-strong);
+}
+
+.journey-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.journey-step {
+    display: grid;
+    gap: 10px;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: rgba(248, 251, 255, 0.88);
+}
+
+.journey-step p {
+    color: var(--text-muted);
+    line-height: 1.7;
+}
+
+.journey-step-index {
+    font-family: var(--mono);
+    color: var(--secondary);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.journey-status,
+.assist-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+}
+
+.journey-stat,
+.assist-stat {
+    display: inline-flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.86);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.journey-stat.is-active,
+.assist-stat.is-active {
+    border-color: rgba(0, 180, 216, 0.26);
+    color: var(--secondary);
+}
+
+.journey-stat.is-ready,
+.assist-stat.is-ready {
+    border-color: rgba(47, 133, 90, 0.24);
+    color: var(--success);
+}
+
+.journey-stat.is-warning,
+.assist-stat.is-warning {
+    border-color: rgba(221, 107, 32, 0.24);
+    color: var(--warning);
+}
+
 .composer-context strong {
     display: block;
     margin-top: 4px;
@@ -876,6 +965,39 @@ input:focus-visible {
     gap: 8px;
 }
 
+.chat-shell {
+    position: relative;
+    min-height: 0;
+}
+
+.chat-shell .chat-log {
+    padding-bottom: 88px;
+}
+
+.jump-latest {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    border: none;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 999px;
+    background: rgba(15, 39, 68, 0.9);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 14px 28px rgba(15, 39, 68, 0.22);
+    transition: transform var(--transition), opacity var(--transition), box-shadow var(--transition);
+}
+
+.jump-latest:hover,
+.jump-latest:focus-visible {
+    transform: translateY(-1px);
+    box-shadow: 0 18px 32px rgba(15, 39, 68, 0.26);
+}
+
+.message-actions,
 .answer-summary,
 .follow-up-group {
     display: flex;
@@ -937,6 +1059,13 @@ input:focus-visible {
     transform: translateY(-1px);
     border-color: rgba(0, 180, 216, 0.3);
     box-shadow: var(--shadow-md);
+}
+
+.inline-action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
 }
 
 .status-note {
@@ -1016,6 +1145,25 @@ input:focus-visible {
 
 .loading-bar:nth-child(3) {
     width: 68%;
+}
+
+.composer-assist {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: rgba(248, 251, 255, 0.84);
+}
+
+.assist-copy {
+    display: grid;
+    gap: 6px;
+}
+
+.assist-copy .helper-inline {
+    line-height: 1.65;
 }
 
 .composer {
@@ -1340,9 +1488,29 @@ textarea:disabled {
     }
 
     .focus-notice,
-    .composer-context {
+    .composer-context,
+    .composer-assist,
+    .journey-header {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .journey-grid,
+    .journey-status,
+    .assist-meta {
+        grid-template-columns: 1fr;
+        width: 100%;
+    }
+
+    .journey-grid {
+        display: grid;
+    }
+
+    .journey-stat,
+    .assist-stat,
+    .jump-latest {
+        width: 100%;
+        justify-content: center;
     }
 
     .composer-footer {
