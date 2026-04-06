@@ -63,16 +63,17 @@ public class SpringAiResponseComposerAgent implements ResponseComposerAgent {
 
     private AnswerDraft sanitize(AnswerDraft draft, ResearchBrief researchBrief) {
         List<String> followUps = draft.followUpQuestions() == null ? List.of() : draft.followUpQuestions();
+        List<String> recoveryActions = draft.recoveryActions() == null ? List.of() : draft.recoveryActions();
         String confidence = draft.confidence() == null
                 ? mapConfidence(researchBrief.supportLevel())
                 : draft.confidence().trim().toUpperCase();
-        return new AnswerDraft(draft.answer(), confidence, followUps);
+        return new AnswerDraft(draft.answer(), confidence, followUps, recoveryActions);
     }
 
     private AnswerDraft fallback(ResearchBrief researchBrief, List<Citation> citations) {
         String sourceLead = citations.isEmpty() ? "" : " Source: " + citations.get(0).title() + ".";
         String answer = researchBrief.executiveSummary() + sourceLead;
-        return new AnswerDraft(answer, mapConfidence(researchBrief.supportLevel()), List.of());
+        return new AnswerDraft(answer, mapConfidence(researchBrief.supportLevel()), List.of(), List.of());
     }
 
     private String mapConfidence(String supportLevel) {

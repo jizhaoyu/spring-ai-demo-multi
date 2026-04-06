@@ -22,12 +22,22 @@ public class LocalFallbackResponseComposerAgent implements ResponseComposerAgent
         String answer;
         if (citations == null || citations.isEmpty()) {
             answer = "当前知识库暂时无法为这个问题提供可靠依据。你可以补充相关文档，或者换一个更具体的问题继续提问。";
-            return new AnswerDraft(answer, "LOW", List.of("要不要先查看现有知识库目录？"));
+            return new AnswerDraft(
+                    answer,
+                    "LOW",
+                    List.of("要不要先查看现有知识库目录？"),
+                    List.of("缩小问题范围后重试", "先选择一份文档，再重新提问", "更换关键词后继续追问")
+            );
         }
 
         String sourceNames = citations.stream().map(Citation::title).distinct().collect(Collectors.joining("、"));
         answer = researchBrief.executiveSummary() + "\n\n参考来源：" + sourceNames + "。";
-        return new AnswerDraft(answer, "MEDIUM", List.of("是否需要我继续展开某一条来源的细节？"));
+        return new AnswerDraft(
+                answer,
+                "MEDIUM",
+                List.of("是否需要我继续展开某一条来源的细节？"),
+                List.of("打开验证工作台核对证据", "如需更准，先限定一份文档后追问")
+        );
     }
 }
 

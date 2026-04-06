@@ -60,6 +60,7 @@ public class LocalKnowledgeSearchTool implements KnowledgeSearchTool {
                 .limit(this.properties.getTopK())
                 .map(scoredChunk -> toCitation(scoredChunk.chunk()))
                 .toList();
+        int documentsScanned = this.knowledgeBaseIndexer.chunks().size();
 
         Instant finishedAt = Instant.now();
         ToolCall toolCall = new ToolCall(
@@ -72,6 +73,8 @@ public class LocalKnowledgeSearchTool implements KnowledgeSearchTool {
         ToolResult toolResult = new ToolResult(
                 TOOL_DEFINITION.name(),
                 citations.isEmpty() ? "没有找到匹配当前问题的证据片段。" : "已检索到 " + citations.size() + " 条证据片段。",
+                citations.size(),
+                documentsScanned,
                 citations.size()
         );
         return new KnowledgeSearchResult(TOOL_DEFINITION, toolCall, toolResult, citations);

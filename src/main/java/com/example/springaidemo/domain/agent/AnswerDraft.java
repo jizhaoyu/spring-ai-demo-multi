@@ -6,6 +6,7 @@ import java.util.List;
 public record AnswerDraft(
         @NotBlank String answer,
         @NotBlank String confidence,
-        List<String> followUpQuestions
+        List<String> followUpQuestions,
+        List<String> recoveryActions
 ) {
 }

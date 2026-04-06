@@ -1,27 +1,90 @@
+const DEFAULT_LOCALE = 'zhCN';
+
+const messages = { zhCN: {
+  accessibility: {
+    skipToMain: '跳到主内容'
+  },
+  controls: {
+    themeLight: '浅色模式',
+    themeDark: '深色模式',
+    focusEnabled: '退出专注',
+    focusDisabled: '专注对话',
+    newConversation: '新建会话',
+    send: '发送提问',
+    jumpLatest: '回到最新消息'
+  },
+  composer: {
+    placeholder: '请输入问题，例如：标准支持的响应时间是多少？'
+  },
+  shortcuts: {
+    title: '高频问答快捷操作',
+    close: '关闭',
+    items: {
+      help: '打开快捷键帮助面板',
+      search: '聚焦文档搜索；手机端会先打开文档抽屉',
+      composer: '回到问答输入区并聚焦输入框',
+      evidence: '切换到证据面板',
+      trace: '切换到轨迹面板',
+      evidenceCopy: '复制当前高亮证据；默认附带来源信息'
+    }
+  },
+  status: {
+    idleStage: '待命',
+    idleRequest: '待提问',
+    connected: '链路已建立',
+    completed: '已完成',
+    answerReady: '回答已生成',
+    failed: '执行失败',
+    failedRequest: '请求失败',
+    building: '建立链路',
+    processing: '处理中'
+  },
+  stages: {
+    planner: { label: '规划', caption: '分析问题并确定回答策略' },
+    retrieval: { label: '检索', caption: '从知识库中提取相关证据' },
+    research: { label: '研究', caption: '整理线索并形成研究摘要' },
+    response: { label: '生成', caption: '合成最终回答并附带引用' }
+  }
+} };
+
+function getMessage(path, fallback = '') {
+  const value = path.split('.').reduce((current, key) => current?.[key], messages[DEFAULT_LOCALE]);
+  return value ?? fallback;
+}
+
+function renderIconSprite(name, label = '', options = {}) {
+  const className = options.className || 'icon';
+  const decorative = options.decorative ?? true;
+  const ariaAttributes = decorative
+    ? 'aria-hidden="true"'
+    : `role="img" aria-label="${escapeHtml(label)}"`;
+  return `<svg class="${className}" ${ariaAttributes} focusable="false"><use href="/icons.svg#${name}"></use></svg>`;
+}
+
 const STAGES = [
   {
     key: 'planner',
-    label: '规划',
-    caption: '分析问题并确定回答策略',
-    icon: 'fa-solid fa-compass-drafting'
+    label: getMessage('stages.planner.label', '规划'),
+    caption: getMessage('stages.planner.caption', '分析问题并确定回答策略'),
+    icon: 'compass'
   },
   {
     key: 'retrieval',
-    label: '检索',
-    caption: '从知识库中提取相关证据',
-    icon: 'fa-solid fa-magnifying-glass'
+    label: getMessage('stages.retrieval.label', '检索'),
+    caption: getMessage('stages.retrieval.caption', '从知识库中提取相关证据'),
+    icon: 'magnifying-glass'
   },
   {
     key: 'research',
-    label: '研究',
-    caption: '整理线索并形成研究摘要',
-    icon: 'fa-solid fa-microscope'
+    label: getMessage('stages.research.label', '研究'),
+    caption: getMessage('stages.research.caption', '整理线索并形成研究摘要'),
+    icon: 'microscope'
   },
   {
     key: 'response',
-    label: '生成',
-    caption: '合成最终回答并附带引用',
-    icon: 'fa-solid fa-sparkles'
+    label: getMessage('stages.response.label', '生成'),
+    caption: getMessage('stages.response.caption', '合成最终回答并附带引用'),
+    icon: 'sparkles'
   }
 ];
 
@@ -39,6 +102,12 @@ const DEFAULT_RUNTIME_STATUS = {
   label: '降级模式',
   message: '正在检查运行状态...'
 };
+
+const DRAFT_STORAGE_KEY = 'console-question-draft';
+const JOURNEY_STORAGE_KEY = 'console-journey-collapsed';
+const RECENT_DOCS_STORAGE_KEY = 'console-recent-docs';
+const PINNED_DOCS_STORAGE_KEY = 'console-pinned-docs';
+const DOC_USAGE_STORAGE_KEY = 'console-doc-usage';
 
 const state = {
   conversationId: createConversationId(),
@@ -58,8 +127,25 @@ const state = {
   viewportMode: '',
   detailView: 'sources',
   treeExpanded: new Set(),
+  recentDocs: [],
+  pinnedDocs: [],
+  commonDocs: [],
+  docUsage: {},
+  docDrawerOpen: false,
+  responseMeta: {
+    documentsScanned: 0,
+    matchedDocuments: 0,
+    degradedReason: '',
+    confidenceReason: '',
+    selectedStrategy: '',
+    recoveryActions: []
+  },
   lastQuestion: '',
+  lastResponseConfidence: '',
   promptCollapsed: false,
+  journeyCollapsed: loadStoredValue(JOURNEY_STORAGE_KEY, '') === ''
+    ? window.innerWidth <= 860
+    : loadStoredValue(JOURNEY_STORAGE_KEY, 'false') === 'true',
   collapsed: {
     left: false,
     evidence: false,
@@ -75,7 +161,13 @@ const elements = {
   runtimeBanner: document.getElementById('runtimeBanner'),
   runtimeStatusLabel: document.getElementById('runtimeStatusLabel'),
   runtimeStatusMessage: document.getElementById('runtimeStatusMessage'),
+  askBar: document.getElementById('askBar'),
+  askBarStatus: document.getElementById('askBarStatus'),
+  contextualGuide: document.getElementById('contextualGuide'),
+  exampleQuestionRail: document.getElementById('exampleQuestionRail'),
+  newConversationButton: document.getElementById('newConversationButton'),
   conversationBadge: document.getElementById('conversationBadge'),
+  conversationHelper: document.getElementById('conversationHelper'),
   currentStageLabel: document.getElementById('currentStageLabel'),
   requestStatusBadge: document.getElementById('requestStatusBadge'),
   themeToggle: document.getElementById('themeToggle'),
@@ -88,7 +180,23 @@ const elements = {
   treeRootLabel: document.getElementById('treeRootLabel'),
   treeRootMeta: document.getElementById('treeRootMeta'),
   treeRootChip: document.getElementById('treeRootChip'),
+  worksetTabs: document.getElementById('worksetTabs'),
+  recentDocsList: document.getElementById('recentDocsList'),
+  pinnedDocsList: document.getElementById('pinnedDocsList'),
+  commonDocsList: document.getElementById('commonDocsList'),
+  docDrawer: document.getElementById('docDrawer'),
+  docDrawerBackdrop: document.getElementById('docDrawerBackdrop'),
+  docDrawerToggle: document.getElementById('docDrawerToggle'),
   docFilterInput: document.getElementById('docFilterInput'),
+  shortcutHelpDialog: document.getElementById('shortcutHelpDialog'),
+  shortcutHelpClose: document.getElementById('shortcutHelpClose'),
+  messageActionMenu: document.getElementById('messageActionMenu'),
+  evidenceCopyMenu: document.getElementById('evidenceCopyMenu'),
+  skipToMain: document.getElementById('skipToMain'),
+  validationWorkbench: document.getElementById('validationWorkbench'),
+  validationSummary: document.getElementById('validationSummary'),
+  citationDrawer: document.getElementById('citationDrawer'),
+  validationTimeline: document.getElementById('validationTimeline'),
   chatLog: document.getElementById('chatLog'),
   sourceList: document.getElementById('sourceList'),
   traceList: document.getElementById('traceList'),
@@ -97,10 +205,22 @@ const elements = {
   submitButton: document.getElementById('submitButton'),
   promptGrid: document.getElementById('promptGrid'),
   promptToggle: document.getElementById('promptToggle'),
+  journeyPanel: document.getElementById('journeyPanel'),
+  journeyToggle: document.getElementById('journeyToggle'),
   composerContext: document.getElementById('composerContext'),
   selectedDocLabel: document.getElementById('selectedDocLabel'),
   selectedDocPath: document.getElementById('selectedDocPath'),
   clearDocContext: document.getElementById('clearDocContext'),
+  questionQualityLabel: document.getElementById('questionQualityLabel'),
+  questionQualityHint: document.getElementById('questionQualityHint'),
+  helperTextContent: document.getElementById('helperTextContent'),
+  draftStatusBadge: document.getElementById('draftStatusBadge'),
+  questionLengthBadge: document.getElementById('questionLengthBadge'),
+  clearDraftButton: document.getElementById('clearDraftButton'),
+  docSelectionState: document.getElementById('docSelectionState'),
+  questionReadinessState: document.getElementById('questionReadinessState'),
+  shortcutHintState: document.getElementById('shortcutHintState'),
+  jumpLatestButton: document.getElementById('jumpLatestButton'),
   leftPanelShell: document.getElementById('leftPanelShell'),
   evidencePanelShell: document.getElementById('evidencePanelShell'),
   auditPanelShell: document.getElementById('auditPanelShell'),
@@ -115,17 +235,45 @@ const elements = {
 initialize();
 
 function initialize() {
-  elements.conversationBadge.textContent = state.conversationId;
+  applyLocalizedStaticCopy();
+  renderConversationBadge();
+  hydrateDraft();
+  hydrateWorksets();
   bindEvents();
   applyTheme();
   applyFocusMode();
   syncViewportMode(true);
   renderRuntimeStatus();
+  renderWorksets();
+  renderDocDrawer();
   renderStageStrip();
   renderComposerContext();
+  renderJourneyPanel();
   renderPromptToggle();
+  renderAskBar();
+  renderContextualGuide();
   renderDetailTabs();
+  renderSources();
+  renderTrace();
+  adjustQuestionInputHeight();
+  syncQuestionExperience();
+  updateJumpLatestButton();
   hydrateCatalog();
+}
+
+function applyLocalizedStaticCopy() {
+  elements.skipToMain.textContent = getMessage('accessibility.skipToMain', '跳到主内容');
+  elements.newConversationButton.querySelector('span').textContent = getMessage('controls.newConversation', '新建会话');
+  elements.submitButton.querySelector('span').textContent = getMessage('controls.send', '发送提问');
+  elements.jumpLatestButton.querySelector('span').textContent = getMessage('controls.jumpLatest', '回到最新消息');
+  elements.questionInput.placeholder = getMessage('composer.placeholder', '请输入问题，例如：标准支持的响应时间是多少？');
+  elements.shortcutHelpDialog.querySelector('.shortcut-help-header h2').textContent = getMessage('shortcuts.title', '高频问答快捷操作');
+  elements.shortcutHelpClose.textContent = getMessage('shortcuts.close', '关闭');
+  const shortcutParagraphs = elements.shortcutHelpDialog.querySelectorAll('.shortcut-item p');
+  const shortcutKeys = ['help', 'search', 'composer', 'evidence', 'trace', 'evidenceCopy'];
+  shortcutParagraphs.forEach((paragraph, index) => {
+    paragraph.textContent = getMessage(`shortcuts.items.${shortcutKeys[index]}`, paragraph.textContent);
+  });
 }
 
 function bindEvents() {
@@ -137,6 +285,12 @@ function bindEvents() {
   elements.toggleLeftPanel.addEventListener('click', () => togglePanel('left'));
   elements.toggleEvidencePanel.addEventListener('click', () => togglePanel('evidence'));
   elements.toggleAuditPanel.addEventListener('click', () => togglePanel('audit'));
+  elements.newConversationButton.addEventListener('click', resetConversationState);
+  elements.docDrawerToggle.addEventListener('click', () => toggleDocDrawer());
+  elements.docDrawerBackdrop.addEventListener('click', () => toggleDocDrawer(false));
+  document.addEventListener('keydown', handleGlobalShortcut);
+  document.addEventListener('click', handleGlobalPointerDown, true);
+  elements.shortcutHelpClose.addEventListener('click', closeShortcutHelp);
 
   elements.themeToggle.addEventListener('click', () => {
     state.theme = state.theme === 'light' ? 'dark' : 'light';
@@ -161,8 +315,10 @@ function bindEvents() {
 
   elements.clearDocContext.addEventListener('click', () => {
     state.selectedDoc = null;
+    renderWorksets();
     renderCatalogTree();
     renderComposerContext();
+    syncQuestionExperience();
     elements.questionInput.focus();
   });
 
@@ -172,6 +328,7 @@ function bindEvents() {
       return;
     }
     elements.questionInput.value = target.dataset.question;
+    handleQuestionInput();
     elements.questionInput.focus();
   });
 
@@ -180,8 +337,400 @@ function bindEvents() {
     renderPromptToggle();
   });
 
+  elements.journeyToggle.addEventListener('click', () => {
+    state.journeyCollapsed = !state.journeyCollapsed;
+    persistValue(JOURNEY_STORAGE_KEY, String(state.journeyCollapsed));
+    renderJourneyPanel();
+  });
+
+  elements.worksetTabs.addEventListener('click', (event) => {
+    const openButton = event.target.closest('[data-workset-open]');
+    if (openButton) {
+      const documentNode = resolveDocumentReference(openButton.dataset.worksetOpen);
+      if (documentNode) {
+        selectDocument(documentNode);
+      }
+      return;
+    }
+
+    const pinButton = event.target.closest('[data-workset-pin]');
+    if (pinButton) {
+      togglePinnedDocument(pinButton.dataset.worksetPin);
+    }
+  });
+
+  elements.clearDraftButton.addEventListener('click', clearDraft);
+  elements.jumpLatestButton.addEventListener('click', smoothScrollToLatest);
+  elements.questionInput.addEventListener('input', handleQuestionInput);
+  elements.questionInput.addEventListener('keydown', handleQuestionKeydown);
+  elements.chatLog.addEventListener('scroll', updateJumpLatestButton);
   elements.form.addEventListener('submit', handleSubmit);
-  window.addEventListener('resize', debounce(syncViewportMode, 120));
+  window.addEventListener('resize', debounce(() => {
+    syncViewportMode();
+    adjustQuestionInputHeight();
+    updateJumpLatestButton();
+  }, 120));
+}
+
+function hydrateDraft() {
+  const draft = loadStoredValue(DRAFT_STORAGE_KEY, '');
+  if (!draft) {
+    return;
+  }
+  elements.questionInput.value = draft;
+}
+
+function hydrateWorksets() {
+  state.recentDocs = readJsonValue(RECENT_DOCS_STORAGE_KEY, []);
+  state.pinnedDocs = readJsonValue(PINNED_DOCS_STORAGE_KEY, []);
+  state.docUsage = readJsonValue(DOC_USAGE_STORAGE_KEY, {});
+  syncCommonDocs();
+}
+
+function renderConversationBadge() {
+  elements.conversationBadge.textContent = formatConversationId(state.conversationId);
+  elements.conversationBadge.title = state.conversationId;
+  elements.conversationHelper.textContent = state.selectedDoc
+    ? `当前已保留文档范围：${shortTitle(state.selectedDoc.label, 14)}`
+    : '聊天太长时可新建会话，不影响已选文档范围。';
+}
+
+function formatConversationId(conversationId) {
+  if (!conversationId) {
+    return '初始化中';
+  }
+  return conversationId.length <= 18
+    ? conversationId
+    : `${conversationId.slice(0, 8)}…${conversationId.slice(-6)}`;
+}
+
+function handleQuestionInput() {
+  persistValue(DRAFT_STORAGE_KEY, elements.questionInput.value);
+  adjustQuestionInputHeight();
+  syncQuestionExperience();
+}
+
+function handleQuestionKeydown(event) {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault();
+    if (!state.loading && elements.questionInput.value.trim()) {
+      elements.form.requestSubmit();
+    }
+  }
+}
+
+function handleGlobalShortcut(event) {
+  if (event.key === 'Escape') {
+    closeShortcutHelp();
+    closeActionMenus();
+    if (state.docDrawerOpen) {
+      toggleDocDrawer(false);
+    }
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'c') {
+    event.preventDefault();
+    copyEvidenceAs('source');
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    focusDocumentSearch();
+    return;
+  }
+
+  if (event.altKey && event.key === '1') {
+    event.preventDefault();
+    elements.questionInput.focus();
+    elements.questionInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  if (event.altKey && event.key === '2') {
+    event.preventDefault();
+    focusDetailPanel('sources');
+    return;
+  }
+
+  if (event.altKey && event.key === '3') {
+    event.preventDefault();
+    focusDetailPanel('trace');
+    return;
+  }
+
+  if (event.key === '?' && !isEditableTarget(event.target)) {
+    event.preventDefault();
+    openShortcutHelp();
+  }
+}
+
+function handleGlobalPointerDown(event) {
+  if (elements.messageActionMenu.hidden && elements.evidenceCopyMenu.hidden) {
+    return;
+  }
+  if (elements.messageActionMenu.contains(event.target) || elements.evidenceCopyMenu.contains(event.target)) {
+    return;
+  }
+  if (event.target.closest('[data-message-menu-trigger]') || event.target.closest('[data-evidence-copy-trigger]')) {
+    return;
+  }
+  closeActionMenus();
+}
+
+function isEditableTarget(target) {
+  return Boolean(target?.closest('input, textarea, [contenteditable="true"]'));
+}
+
+function openShortcutHelp() {
+  if (typeof elements.shortcutHelpDialog.showModal === 'function' && !elements.shortcutHelpDialog.open) {
+    elements.shortcutHelpDialog.showModal();
+    elements.shortcutHelpClose.focus();
+    return;
+  }
+  elements.shortcutHelpDialog.setAttribute('open', 'open');
+  elements.shortcutHelpClose.focus();
+}
+
+function closeShortcutHelp() {
+  if (typeof elements.shortcutHelpDialog.close === 'function' && elements.shortcutHelpDialog.open) {
+    elements.shortcutHelpDialog.close();
+    return;
+  }
+  elements.shortcutHelpDialog.removeAttribute('open');
+}
+
+function focusDocumentSearch() {
+  if (state.viewportMode === 'desktop' && state.collapsed.left) {
+    state.collapsed.left = false;
+    renderPanelStates();
+  }
+  if (state.viewportMode === 'mobile') {
+    toggleDocDrawer(true);
+  }
+  elements.docFilterInput.focus();
+  elements.docFilterInput.select();
+}
+
+function focusDetailPanel(view) {
+  setDetailView(view);
+  const panel = view === 'sources' ? elements.evidencePanelShell : elements.auditPanelShell;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function applyRecoveryAction(actionLabel) {
+  if (actionLabel.includes('文档')) {
+    focusDocumentSearch();
+    return;
+  }
+  if (actionLabel.includes('验证工作台') || actionLabel.includes('降级提示')) {
+    elements.validationWorkbench.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  if (state.lastQuestion) {
+    elements.questionInput.value = state.lastQuestion;
+    handleQuestionInput();
+  }
+  elements.questionInput.focus();
+}
+
+function clearDraft() {
+  elements.questionInput.value = '';
+  persistValue(DRAFT_STORAGE_KEY, '');
+  adjustQuestionInputHeight();
+  syncQuestionExperience();
+  elements.questionInput.focus();
+}
+
+function resetConversationState() {
+  state.conversationId = createConversationId();
+  state.lastQuestion = '';
+  state.lastResponseConfidence = '';
+  state.responseMeta = {
+    documentsScanned: 0,
+    matchedDocuments: 0,
+    degradedReason: '',
+    confidenceReason: '',
+    selectedStrategy: '',
+    recoveryActions: []
+  };
+  state.loading = false;
+  state.sources = [];
+  state.trace = [];
+  state.activeSourceIndex = null;
+  state.detailView = 'sources';
+  state.stages = createStageStateMap();
+  elements.questionInput.value = '';
+  persistValue(DRAFT_STORAGE_KEY, '');
+  adjustQuestionInputHeight();
+  renderConversationBadge();
+  renderWelcomeMessage();
+  renderStageStrip();
+  renderSources();
+  renderTrace();
+  renderPanelStates();
+  renderDetailTabs();
+  elements.currentStageLabel.textContent = getMessage('status.idleStage', '待命');
+  elements.requestStatusBadge.textContent = getMessage('status.idleRequest', '待提问');
+  setComposerState(false);
+  elements.questionInput.focus();
+}
+
+function selectDocument(documentNode) {
+  state.selectedDoc = {
+    id: documentNode.id,
+    label: documentNode.label,
+    path: documentNode.path
+  };
+  rememberRecentDocument(state.selectedDoc);
+  recordDocumentUsage(state.selectedDoc);
+  renderWorksets();
+  renderCatalogTree();
+  renderComposerContext();
+  syncQuestionExperience();
+  if (state.viewportMode === 'mobile') {
+    toggleDocDrawer(false);
+  }
+  elements.questionInput.focus();
+}
+
+function rememberRecentDocument(documentRef) {
+  const nextRecentDocs = [documentRef, ...state.recentDocs.filter((item) => item.id !== documentRef.id)].slice(0, 6);
+  state.recentDocs = nextRecentDocs;
+  persistJsonValue(RECENT_DOCS_STORAGE_KEY, nextRecentDocs);
+}
+
+function recordDocumentUsage(documentRef) {
+  const currentEntry = state.docUsage[documentRef.id] || { ...documentRef, count: 0 };
+  state.docUsage[documentRef.id] = {
+    id: documentRef.id,
+    label: documentRef.label,
+    path: documentRef.path,
+    count: Number(currentEntry.count || 0) + 1
+  };
+  persistJsonValue(DOC_USAGE_STORAGE_KEY, state.docUsage);
+  syncCommonDocs();
+}
+
+function syncCommonDocs() {
+  state.commonDocs = Object.values(state.docUsage || {})
+    .sort((left, right) => Number(right.count || 0) - Number(left.count || 0))
+    .slice(0, 6)
+    .map(({ count, ...documentRef }) => documentRef);
+}
+
+function togglePinnedDocument(documentId) {
+  const existing = state.pinnedDocs.some((item) => item.id === documentId);
+  if (existing) {
+    state.pinnedDocs = state.pinnedDocs.filter((item) => item.id !== documentId);
+  } else {
+    const documentRef = resolveDocumentReference(documentId);
+    if (!documentRef) {
+      return;
+    }
+    state.pinnedDocs = [documentRef, ...state.pinnedDocs.filter((item) => item.id !== documentRef.id)].slice(0, 8);
+  }
+  persistJsonValue(PINNED_DOCS_STORAGE_KEY, state.pinnedDocs);
+  renderWorksets();
+}
+
+function resolveDocumentReference(documentId) {
+  return findDocumentNode(state.catalog.nodes, documentId)
+    || state.recentDocs.find((item) => item.id === documentId)
+    || state.pinnedDocs.find((item) => item.id === documentId)
+    || state.commonDocs.find((item) => item.id === documentId)
+    || null;
+}
+
+function syncQuestionExperience() {
+  const question = elements.questionInput.value.trim();
+  const descriptor = describeQuestionExperience(question);
+  elements.questionQualityLabel.textContent = descriptor.title;
+  elements.questionQualityHint.textContent = descriptor.hint;
+  elements.helperTextContent.textContent = descriptor.helper;
+  elements.draftStatusBadge.textContent = question ? '草稿已自动暂存' : '草稿为空';
+  elements.draftStatusBadge.className = `assist-stat${question ? ' is-active' : ''}`;
+  elements.questionLengthBadge.textContent = `${question.length} 字`;
+  elements.questionLengthBadge.className = `assist-stat${descriptor.badgeTone ? ` ${descriptor.badgeTone}` : ''}`;
+  elements.submitButton.disabled = state.loading || !question;
+  elements.clearDraftButton.disabled = state.loading || !question;
+  updateJourneyStatus(question, descriptor);
+  renderAskBar(descriptor, question);
+  renderContextualGuide(question, descriptor);
+}
+
+function describeQuestionExperience(question) {
+  if (!question) {
+    return {
+      title: '先写问题，再补充范围',
+      hint: '建议补充系统名、时间范围、环境或目标动作，系统会更容易命中证据。',
+      helper: '回答会同时给出可信度、引用证据和可继续追问的建议。',
+      ready: false,
+      badgeTone: ''
+    };
+  }
+
+  if (question.length < 10) {
+    return {
+      title: '问题还比较短',
+      hint: '补充对象、场景或时间范围，系统更容易命中证据。',
+      helper: '如果不确定怎么问，可以先点一个示例问题，再改成自己的业务语境。',
+      ready: false,
+      badgeTone: 'is-warning'
+    };
+  }
+
+  if (!state.selectedDoc) {
+    return {
+      title: '问题已经可以发送',
+      hint: '如果想减少歧义，可以先限定一份文档，或补充业务上下文。',
+      helper: '按 Ctrl / ⌘ + Enter 可发送；回答会联动证据与执行轨迹。',
+      ready: true,
+      badgeTone: 'is-active'
+    };
+  }
+
+  return {
+    title: '问题上下文已较完整',
+    hint: '已限定参考文档，发送后系统会优先引用所选资料。',
+    helper: '按 Ctrl / ⌘ + Enter 可发送；系统会优先使用已选文档作答。',
+    ready: true,
+    badgeTone: 'is-ready'
+  };
+}
+
+function updateJourneyStatus(question, descriptor) {
+  const selectedDocLabel = state.selectedDoc ? `已限定：${shortTitle(state.selectedDoc.label, 12)}` : '未限定文档';
+  elements.docSelectionState.textContent = selectedDocLabel;
+  elements.docSelectionState.className = `journey-stat${state.selectedDoc ? ' is-active' : ''}`;
+  renderConversationBadge();
+
+  if (!question) {
+    elements.questionReadinessState.textContent = '等待输入问题';
+    elements.questionReadinessState.className = 'journey-stat';
+    elements.shortcutHintState.textContent = '输入后可自动暂存草稿';
+    elements.shortcutHintState.className = 'journey-stat is-active';
+    return;
+  }
+
+  elements.questionReadinessState.textContent = descriptor.ready ? '问题可直接发送' : '建议再补充一点上下文';
+  elements.questionReadinessState.className = `journey-stat${descriptor.ready ? ' is-ready' : ' is-warning'}`;
+  elements.shortcutHintState.textContent = 'Ctrl / ⌘ + Enter 发送';
+  elements.shortcutHintState.className = 'journey-stat is-active';
+}
+
+function adjustQuestionInputHeight() {
+  elements.questionInput.style.height = 'auto';
+  const nextHeight = Math.min(Math.max(elements.questionInput.scrollHeight, 132), 280);
+  elements.questionInput.style.height = `${nextHeight}px`;
+}
+
+function updateJumpLatestButton() {
+  const distanceFromBottom = elements.chatLog.scrollHeight - elements.chatLog.scrollTop - elements.chatLog.clientHeight;
+  const hasOverflow = elements.chatLog.scrollHeight - elements.chatLog.clientHeight > 120;
+  const messageCount = elements.chatLog.querySelectorAll('.message-row').length;
+  elements.jumpLatestButton.hidden = !(messageCount > 2 && hasOverflow && distanceFromBottom > 80);
 }
 
 async function handleSubmit(event) {
@@ -194,6 +743,9 @@ async function handleSubmit(event) {
   state.lastQuestion = question;
   appendMessage('user', question, { context: state.selectedDoc });
   elements.questionInput.value = '';
+  persistValue(DRAFT_STORAGE_KEY, '');
+  adjustQuestionInputHeight();
+  syncQuestionExperience();
   startStreamingState();
   const loadingNode = appendMessage('assistant', '', { loading: true });
 
@@ -260,9 +812,9 @@ function handleStreamEvent(event, loadingNode) {
   switch (event.event) {
     case 'session':
       state.conversationId = event.data.conversationId || state.conversationId;
-      elements.conversationBadge.textContent = state.conversationId;
+      renderConversationBadge();
       applyRuntimeStatus(event.data.runtimeStatus);
-      elements.requestStatusBadge.textContent = '链路已建立';
+      elements.requestStatusBadge.textContent = getMessage('status.connected', '链路已建立');
       return false;
     case 'stage':
       updateStageFromEvent(event.data, loadingNode);
@@ -315,7 +867,16 @@ function finalizeStreamSuccess(loadingNode, response) {
   }
 
   state.conversationId = response.conversationId || state.conversationId;
-  elements.conversationBadge.textContent = state.conversationId;
+  state.lastResponseConfidence = response.confidence || '';
+  state.responseMeta = {
+    documentsScanned: Number(response.documentsScanned || 0),
+    matchedDocuments: Number(response.matchedDocuments || 0),
+    degradedReason: response.degradedReason || '',
+    confidenceReason: response.confidenceReason || '',
+    selectedStrategy: response.selectedStrategy || '',
+    recoveryActions: response.recoveryActions || []
+  };
+  renderConversationBadge();
   state.sources = response.sources || [];
   state.trace = (response.auditLog?.agentTrace || state.trace).map((step) => ({
     agentName: mapTraceName(step.agentName),
@@ -329,6 +890,12 @@ function finalizeStreamSuccess(loadingNode, response) {
     sources: state.sources,
     confidence: response.confidence,
     followUpQuestions: response.followUpQuestions,
+    documentsScanned: response.documentsScanned,
+    matchedDocuments: response.matchedDocuments,
+    degradedReason: response.degradedReason,
+    confidenceReason: response.confidenceReason,
+    selectedStrategy: response.selectedStrategy,
+    recoveryActions: response.recoveryActions,
     runtimeStatus: state.runtimeStatus,
     trace: state.trace
   });
@@ -339,8 +906,8 @@ function finalizeStreamSuccess(loadingNode, response) {
       message: state.stages[stage.key].message
     };
   });
-  elements.currentStageLabel.textContent = '已完成';
-  elements.requestStatusBadge.textContent = '回答已生成';
+  elements.currentStageLabel.textContent = getMessage('status.completed', '已完成');
+  elements.requestStatusBadge.textContent = getMessage('status.answerReady', '回答已生成');
   renderStageStrip();
   renderSources();
   renderTrace();
@@ -350,14 +917,23 @@ function finalizeStreamSuccess(loadingNode, response) {
 
 function finalizeStreamFailure(loadingNode, error) {
   state.loading = false;
+  state.lastResponseConfidence = '';
+  state.responseMeta = {
+    documentsScanned: 0,
+    matchedDocuments: 0,
+    degradedReason: '',
+    confidenceReason: '',
+    selectedStrategy: '',
+    recoveryActions: []
+  };
   loadingNode?.remove();
   appendMessage('assistant', '本次请求未能完成。', {
     errorType: 'system',
     errorMessage: error.message,
     retryQuestion: state.lastQuestion
   });
-  elements.currentStageLabel.textContent = '执行失败';
-  elements.requestStatusBadge.textContent = '请求失败';
+  elements.currentStageLabel.textContent = getMessage('status.failed', '执行失败');
+  elements.requestStatusBadge.textContent = getMessage('status.failedRequest', '请求失败');
   const activeStage = STAGES.find((stage) => state.stages[stage.key].status === 'active');
   if (activeStage) {
     state.stages[activeStage.key] = {
@@ -408,6 +984,46 @@ async function hydrateCatalog() {
   }
 }
 
+function renderWorksets() {
+  renderWorksetList(elements.recentDocsList, state.recentDocs, '选中过文档后，这里会保留最近使用记录。');
+  renderWorksetList(elements.pinnedDocsList, state.pinnedDocs, '固定文档后，这里会出现常用资料快捷入口。');
+  renderWorksetList(elements.commonDocsList, state.commonDocs, '开始选择文档后，这里会自动汇总最常用资料。');
+}
+
+function renderWorksetList(container, documents, emptyMessage) {
+  if (!documents.length) {
+    container.innerHTML = `<div class="empty-state">${escapeHtml(emptyMessage)}</div>`;
+    return;
+  }
+
+  container.innerHTML = documents.map((documentRef) => {
+    const isActive = documentRef.id === state.selectedDoc?.id;
+    const isPinned = state.pinnedDocs.some((item) => item.id === documentRef.id);
+    return `
+      <div class="workset-item">
+        <button
+          type="button"
+          class="workset-chip${isActive ? ' is-active' : ''}"
+          data-workset-open="${escapeHtml(documentRef.id)}"
+          title="${escapeHtml(documentRef.path || documentRef.label)}"
+        >
+          <span>${escapeHtml(shortTitle(documentRef.label, 18))}</span>
+          <span class="workset-chip-meta">${escapeHtml(shortTitle(documentRef.path || '', 24))}</span>
+        </button>
+        <button
+          type="button"
+          class="workset-pin${isPinned ? ' is-active' : ''}"
+          data-workset-pin="${escapeHtml(documentRef.id)}"
+          aria-pressed="${String(isPinned)}"
+          title="${isPinned ? '取消固定文档' : '固定到工作集'}"
+        >
+          ${renderIconSprite('thumbtack')}
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
 function renderCatalogTree() {
   const filteredNodes = filterTreeNodes(state.catalog.nodes, state.filter.toLowerCase());
   elements.documentCount.textContent = `${countDocuments(filteredNodes)}/${state.catalog.documentCount} 份文档`;
@@ -431,7 +1047,7 @@ function renderTreeNode(node, depth) {
       <div class="tree-node" style="--tree-depth:${depth};">
         <button type="button" class="doc-item-button${activeClass}" data-node-id="${escapeHtml(node.id)}" data-node-type="DOCUMENT">
           <div class="doc-title-row">
-            <span class="doc-title"><i class="fa-regular fa-file-lines"></i>${escapeHtml(node.label)}</span>
+            <span class="doc-title">${renderIconSprite('file-lines')}<span>${escapeHtml(node.label)}</span></span>
             <span class="doc-meta">${escapeHtml(node.path)}</span>
           </div>
           <p class="doc-summary">${escapeHtml(node.summary || '无摘要')}</p>
@@ -446,7 +1062,7 @@ function renderTreeNode(node, depth) {
       <div class="tree-node-header">
         <button type="button" class="tree-node-toggle${isOpen ? ' is-folder-open' : ''}" data-node-id="${escapeHtml(node.id)}" data-node-type="FOLDER">
           <span class="tree-node-main">
-            <i class="fa-regular ${isOpen ? 'fa-folder-open' : 'fa-folder'}"></i>
+            ${renderIconSprite(isOpen ? 'folder-open' : 'folder')}
             <span>${escapeHtml(node.label)}</span>
           </span>
           <span class="tree-node-meta">${countDocuments(node.children || [])} 份文档</span>
@@ -476,14 +1092,7 @@ function bindTreeEvents() {
       if (!documentNode) {
         return;
       }
-      state.selectedDoc = {
-        id: documentNode.id,
-        label: documentNode.label,
-        path: documentNode.path
-      };
-      renderCatalogTree();
-      renderComposerContext();
-      elements.questionInput.focus();
+      selectDocument(documentNode);
     });
   });
 }
@@ -492,15 +1101,16 @@ function renderStageStrip() {
   if (state.viewportMode === 'desktop') {
     elements.stageStrip.innerHTML = STAGES.map((stage) => {
       const stageMeta = state.stages[stage.key];
+      const fullMessage = stageMeta.message || stage.caption;
       return `
         <article class="stage-card is-${stageMeta.status} tone-${stageMeta.severity}">
           <div class="stage-card-header">
-            <span class="stage-icon"><i class="${stage.icon}"></i></span>
+            <span class="stage-icon">${renderIconSprite(stage.icon)}</span>
             <span class="stage-state">${stageStateLabel(stageMeta.status)}</span>
           </div>
           <div>
             <h3>${stage.label}</h3>
-            <p class="stage-caption">${stageMeta.message || stage.caption}</p>
+            <p class="stage-caption" title="${escapeHtml(fullMessage)}">${escapeHtml(compactStageMessage(fullMessage, 78))}</p>
           </div>
         </article>
       `;
@@ -510,6 +1120,7 @@ function renderStageStrip() {
 
   const activeStage = resolveSpotlightStage();
   const stageMeta = state.stages[activeStage.key];
+  const fullMessage = stageMeta.message || activeStage.caption;
   elements.stageStrip.innerHTML = `
     <div class="stage-stepper">
       ${STAGES.map((stage) => {
@@ -528,7 +1139,7 @@ function renderStageStrip() {
         <span class="stage-state">${stageStateLabel(stageMeta.status)}</span>
       </div>
       <h3>${activeStage.label}</h3>
-      <p class="stage-caption">${stageMeta.message || activeStage.caption}</p>
+      <p class="stage-caption" title="${escapeHtml(fullMessage)}">${escapeHtml(compactStageMessage(fullMessage, 92))}</p>
     </article>
   `;
 }
@@ -536,11 +1147,32 @@ function renderStageStrip() {
 function renderSources(options = {}) {
   if (options.loading) {
     elements.sourceList.innerHTML = createSkeletonCards(3);
+    renderValidationWorkbench();
     return;
   }
 
   if (!state.sources.length) {
-    elements.sourceList.innerHTML = '<div class="empty-state">当前回答没有附带可引用证据。可以继续追问，或切换到审计轨迹查看执行摘要。</div>';
+    elements.sourceList.innerHTML = createPanelEmptyState(
+      state.lastQuestion
+        ? {
+            title: '这次回答还没有可引用证据',
+            body: '可以缩小提问范围、指定文档，或直接继续追问让系统重新检索。',
+            actions: [
+              { action: 'retry', label: '重试本次请求' },
+              { action: 'show-prompts', label: '查看示例问题' }
+            ]
+          }
+        : {
+            title: '证据会在提问后自动出现',
+            body: '先输入一个问题，或点示例问题开始，系统会把命中的片段放到这里。',
+            actions: [
+              { action: 'focus-input', label: '直接提问' },
+              { action: 'show-prompts', label: '查看示例问题' }
+            ]
+          }
+    );
+    bindEmptyStateActions(elements.sourceList);
+    renderValidationWorkbench();
     return;
   }
 
@@ -553,32 +1185,61 @@ function renderSources(options = {}) {
             <div class="source-meta">来源 ${index + 1} / ${escapeHtml(source.sourceId)}</div>
             <h3>${escapeHtml(source.title)}</h3>
           </div>
-          <span class="source-index">${index + 1}</span>
+          <div class="source-card-actions">
+            <button type="button" class="inline-action source-copy-trigger" data-evidence-copy-trigger="${index}">复制证据</button>
+            <span class="source-index">${index + 1}</span>
+          </div>
         </div>
         <p>${escapeHtml(source.excerpt)}</p>
       </article>
     `;
   }).join('');
+  bindSourceActions();
+  renderValidationWorkbench();
 }
 
 function renderTrace(options = {}) {
   if (options.loading) {
     elements.traceList.innerHTML = createSkeletonCards(4);
+    renderValidationWorkbench();
     return;
   }
 
   if (!state.trace.length) {
-    elements.traceList.innerHTML = '<div class="empty-state">发起一次提问后，这里会显示执行摘要与降级提示。</div>';
+    elements.traceList.innerHTML = createPanelEmptyState(
+      state.lastQuestion
+        ? {
+            title: '这次请求没有留下可展示轨迹',
+            body: '可以重试一次请求，或直接继续追问，系统会重新生成阶段摘要。',
+            actions: [
+              { action: 'retry', label: '重试本次请求' },
+              { action: 'focus-input', label: '继续追问' }
+            ]
+          }
+        : {
+            title: '轨迹会在提问后自动展开',
+            body: '发起问题后，这里会按阶段展示规划、检索、研究和生成摘要。',
+            actions: [
+              { action: 'focus-input', label: '开始提问' }
+            ]
+          }
+    );
+    bindEmptyStateActions(elements.traceList);
+    renderValidationWorkbench();
     return;
   }
 
-  elements.traceList.innerHTML = state.trace.map((step) => `
-    <article class="trace-card is-${escapeHtml(step.severity || 'normal')}">
-      <div class="trace-meta">${escapeHtml(localizeAgentName(step.agentName))} / ${Number(step.latencyMs || 0)} ms</div>
-      <h3>${escapeHtml(step.summary)}</h3>
-      <p>${escapeHtml(traceHint(step.severity))}</p>
-    </article>
-  `).join('');
+  elements.traceList.innerHTML = state.trace.map((step) => {
+    const fullSummary = step.summary || '';
+    return `
+      <article class="trace-card is-${escapeHtml(step.severity || 'normal')}">
+        <div class="trace-meta">${escapeHtml(localizeAgentName(step.agentName))} / ${Number(step.latencyMs || 0)} ms</div>
+        <h3 title="${escapeHtml(fullSummary)}">${escapeHtml(compactStageMessage(fullSummary, 110))}</h3>
+        <p>${escapeHtml(traceHint(step.severity))}</p>
+      </article>
+    `;
+  }).join('');
+  renderValidationWorkbench();
 }
 
 function appendMessage(role, content, options = {}) {
@@ -628,12 +1289,26 @@ function appendMessage(role, content, options = {}) {
       if (summary) {
         card.append(summary);
       }
+      const confidenceReason = renderConfidenceReason(options);
+      if (confidenceReason) {
+        card.append(confidenceReason);
+      }
     }
 
     const body = document.createElement('p');
     body.className = 'message-body';
     body.textContent = content;
     card.append(body);
+
+    const actions = role === 'assistant' ? createMessageActions(content, options) : null;
+    if (actions) {
+      card.append(actions);
+    }
+
+    const recoveryActions = role === 'assistant' ? renderRecoveryActions(options) : null;
+    if (recoveryActions) {
+      card.append(recoveryActions);
+    }
 
     if (role === 'assistant' && options.sources?.length) {
       const footer = document.createElement('div');
@@ -650,7 +1325,7 @@ function appendMessage(role, content, options = {}) {
         button.className = `citation-chip${state.activeSourceIndex === index ? ' is-active' : ''}`;
         button.textContent = `[${index + 1}] ${shortTitle(source.title, 8)}`;
         button.title = `${source.title} · 点击定位证据`;
-        button.addEventListener('click', () => highlightSource(index, options.sources));
+        button.addEventListener('click', () => openCitationDrawer(index, options.sources));
         footer.append(button);
       });
       card.append(footer);
@@ -672,6 +1347,7 @@ function appendMessage(role, content, options = {}) {
         button.textContent = question;
         button.addEventListener('click', () => {
           elements.questionInput.value = question;
+          handleQuestionInput();
           elements.questionInput.focus();
         });
         followUpGroup.append(button);
@@ -686,6 +1362,7 @@ function appendMessage(role, content, options = {}) {
       action.textContent = '重新填写刚才的问题';
       action.addEventListener('click', () => {
         elements.questionInput.value = options.retryQuestion;
+        handleQuestionInput();
         elements.questionInput.focus();
       });
       card.append(action);
@@ -702,7 +1379,136 @@ function appendMessage(role, content, options = {}) {
   row.append(card);
   elements.chatLog.append(row);
   smoothScrollToLatest();
+  updateJumpLatestButton();
   return row;
+}
+
+function renderWelcomeMessage() {
+  elements.chatLog.innerHTML = `
+    <article class="message-row is-assistant">
+      <div class="message-card">
+        <div class="message-meta">
+          <span class="message-role">助手</span>
+          <span class="message-tag">系统引导</span>
+        </div>
+        <p class="message-body">欢迎使用中文知识库问答控制台。你可以先提问，也可以先选中左侧文档，再让系统优先参考它来回答。</p>
+      </div>
+    </article>
+  `;
+  updateJumpLatestButton();
+}
+
+function createPanelEmptyState(config) {
+  const actions = (config.actions || []).map((action) => `
+    <button type="button" class="inline-action empty-action" data-empty-action="${escapeHtml(action.action)}">
+      ${escapeHtml(action.label)}
+    </button>
+  `).join('');
+
+  return `
+    <div class="empty-state rich-empty-state">
+      <strong>${escapeHtml(config.title)}</strong>
+      <p>${escapeHtml(config.body)}</p>
+      ${actions ? `<div class="empty-actions">${actions}</div>` : ''}
+    </div>
+  `;
+}
+
+function bindEmptyStateActions(container) {
+  container.querySelectorAll('[data-empty-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.emptyAction;
+      if (action === 'focus-input') {
+        elements.questionInput.focus();
+        return;
+      }
+      if (action === 'show-prompts') {
+        if (state.viewportMode === 'mobile') {
+          state.promptCollapsed = false;
+          renderPromptToggle();
+        }
+        elements.promptGrid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+      }
+      if (action === 'retry') {
+        retryLastQuestion();
+      }
+    });
+  });
+}
+
+function bindSourceActions() {
+  elements.sourceList.querySelectorAll('.source-card').forEach((card) => {
+    card.addEventListener('click', (event) => {
+      if (event.target.closest('[data-evidence-copy-trigger]')) {
+        return;
+      }
+      openCitationDrawer(Number(card.dataset.sourceIndex));
+    });
+  });
+
+  elements.sourceList.querySelectorAll('[data-evidence-copy-trigger]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openEvidenceCopyMenu(Number(button.dataset.evidenceCopyTrigger), button);
+    });
+  });
+}
+
+function createMessageActions(content, options) {
+  if (options.loading || options.errorType) {
+    return null;
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'message-actions';
+
+  const copyButton = document.createElement('button');
+  copyButton.type = 'button';
+  copyButton.className = 'inline-action';
+  copyButton.textContent = '复制答案';
+  copyButton.addEventListener('click', async () => {
+    const copied = await copyTextToClipboard(content);
+    flashActionLabel(copyButton, copied ? '已复制' : '复制失败');
+  });
+  actions.append(copyButton);
+
+  if (options.sources?.length) {
+    const sourceButton = document.createElement('button');
+    sourceButton.type = 'button';
+    sourceButton.className = 'inline-action';
+    sourceButton.textContent = `查看 ${options.sources.length} 条证据`;
+    sourceButton.addEventListener('click', () => openCitationDrawer(0, options.sources));
+    actions.append(sourceButton);
+  }
+
+  if (options.trace?.length) {
+    const traceButton = document.createElement('button');
+    traceButton.type = 'button';
+    traceButton.className = 'inline-action';
+    traceButton.textContent = '查看执行轨迹';
+    traceButton.addEventListener('click', () => {
+      setDetailView('trace');
+      if (state.collapsed.audit) {
+        state.collapsed.audit = false;
+        renderPanelStates();
+      }
+    });
+    actions.append(traceButton);
+  }
+
+  const menuButton = document.createElement('button');
+  menuButton.type = 'button';
+  menuButton.className = 'inline-action';
+  menuButton.dataset.messageMenuTrigger = 'true';
+  menuButton.textContent = '更多操作';
+  menuButton.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openMessageActionMenu(content, options, menuButton);
+  });
+  actions.append(menuButton);
+
+  return actions;
 }
 
 function createMessageNotice(options) {
@@ -717,6 +1523,42 @@ function createMessageNotice(options) {
     <span>${escapeHtml(descriptor.body)}</span>
   `;
   return notice;
+}
+
+function renderConfidenceReason(options) {
+  if (!options.confidenceReason && !options.degradedReason) {
+    return null;
+  }
+  const reason = document.createElement('div');
+  reason.className = `status-note${options.degradedReason ? ' is-degraded' : ''}`;
+  reason.innerHTML = `
+    <strong>${escapeHtml(options.degradedReason ? '可信度说明 / 降级提示' : '可信度说明')}</strong>
+    <span>${escapeHtml([options.confidenceReason, options.degradedReason].filter(Boolean).join('；'))}</span>
+  `;
+  return reason;
+}
+
+function renderRecoveryActions(options) {
+  if (!options.recoveryActions?.length) {
+    return null;
+  }
+  const group = document.createElement('div');
+  group.className = 'follow-up-group';
+
+  const helper = document.createElement('span');
+  helper.className = 'helper-inline';
+  helper.textContent = '建议下一步';
+  group.append(helper);
+
+  options.recoveryActions.forEach((actionLabel) => {
+    const action = document.createElement('button');
+    action.type = 'button';
+    action.className = 'follow-up-chip';
+    action.textContent = actionLabel;
+    action.addEventListener('click', () => applyRecoveryAction(actionLabel));
+    group.append(action);
+  });
+  return group;
 }
 
 function createAnswerSummary(options) {
@@ -747,18 +1589,25 @@ function describeMessageNotice(options) {
       body: options.errorMessage || '请求未能完成，请检查后端服务或稍后重试。'
     };
   }
+  if (options.confidence === 'LOW') {
+    return {
+      tone: 'warning',
+      title: '当前回答可信度较低',
+      body: options.confidenceReason || '这次回答缺少足够证据，建议根据下面的动作重新组织问题。'
+    };
+  }
+  if (options.degradedReason) {
+    return {
+      tone: 'degraded',
+      title: '已使用降级链路',
+      body: options.degradedReason
+    };
+  }
   if (!options.sources?.length) {
     return {
       tone: 'warning',
       title: '证据不足',
-      body: '这次回答没有检索到可靠证据，建议缩小范围、指定文档或更换关键词再问。'
-    };
-  }
-  if (hasDegradedSignal(options)) {
-    return {
-      tone: 'degraded',
-      title: '已使用降级链路',
-      body: '本次回答通过本地降级链路生成，建议结合证据内容复核。'
+      body: options.confidenceReason || '这次回答没有检索到可靠证据，建议缩小范围、指定文档或更换关键词再问。'
     };
   }
   return null;
@@ -771,7 +1620,7 @@ function updateLoadingMessage(loadingNode, message) {
   }
 }
 
-function highlightSource(index, sources = state.sources) {
+function openCitationDrawer(index, sources = state.sources) {
   state.sources = sources;
   state.activeSourceIndex = index;
   setDetailView('sources');
@@ -780,6 +1629,8 @@ function highlightSource(index, sources = state.sources) {
     renderPanelStates();
   }
   renderSources();
+  syncValidationState();
+  elements.citationDrawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
   const target = elements.sourceList.querySelector(`[data-source-index="${index}"]`);
   if (target) {
@@ -791,17 +1642,184 @@ function highlightSource(index, sources = state.sources) {
   });
 }
 
+function highlightSource(index, sources = state.sources) {
+  openCitationDrawer(index, sources);
+}
+
 function retryLastQuestion() {
   if (state.loading || !state.lastQuestion) {
     return;
   }
   elements.questionInput.value = state.lastQuestion;
+  handleQuestionInput();
   elements.questionInput.focus();
   elements.form.requestSubmit();
 }
 
+function openMessageActionMenu(content, options, anchor) {
+  closeActionMenus();
+  elements.messageActionMenu.innerHTML = '';
+
+  const copyAnswerButton = document.createElement('button');
+  copyAnswerButton.type = 'button';
+  copyAnswerButton.className = 'action-menu-item';
+  copyAnswerButton.textContent = '复制答案';
+  copyAnswerButton.addEventListener('click', async () => {
+    const copied = await copyTextToClipboard(content);
+    flashRequestStatus(copied ? '答案已复制' : '答案复制失败');
+    closeActionMenus();
+  });
+  elements.messageActionMenu.append(copyAnswerButton);
+
+  if (options.sources?.length) {
+    const viewEvidenceButton = document.createElement('button');
+    viewEvidenceButton.type = 'button';
+    viewEvidenceButton.className = 'action-menu-item';
+    viewEvidenceButton.textContent = '定位首条证据';
+    viewEvidenceButton.addEventListener('click', () => {
+      openCitationDrawer(0, options.sources);
+      closeActionMenus();
+    });
+    elements.messageActionMenu.append(viewEvidenceButton);
+
+    const copyEvidenceButton = document.createElement('button');
+    copyEvidenceButton.type = 'button';
+    copyEvidenceButton.className = 'action-menu-item';
+    copyEvidenceButton.textContent = '复制当前证据';
+    copyEvidenceButton.addEventListener('click', () => {
+      openEvidenceCopyMenu(state.activeSourceIndex ?? 0, anchor, options.sources);
+    });
+    elements.messageActionMenu.append(copyEvidenceButton);
+  }
+
+  if (options.trace?.length) {
+    const viewTraceButton = document.createElement('button');
+    viewTraceButton.type = 'button';
+    viewTraceButton.className = 'action-menu-item';
+    viewTraceButton.textContent = '查看执行轨迹';
+    viewTraceButton.addEventListener('click', () => {
+      focusDetailPanel('trace');
+      closeActionMenus();
+    });
+    elements.messageActionMenu.append(viewTraceButton);
+  }
+
+  elements.messageActionMenu.hidden = false;
+  positionActionMenu(elements.messageActionMenu, anchor);
+}
+
+function openEvidenceCopyMenu(sourceIndex, anchor, sources = state.sources) {
+  closeActionMenus('message');
+  elements.evidenceCopyMenu.innerHTML = '';
+  elements.evidenceCopyMenu.dataset.sourceIndex = String(sourceIndex);
+  elements.evidenceCopyMenu.dataset.sourceCount = String(sources.length);
+  elements.evidenceCopyMenu.dataset.sourcePayload = encodeURIComponent(JSON.stringify(sources[sourceIndex] || sources[0] || null));
+
+  const plainButton = document.createElement('button');
+  plainButton.type = 'button';
+  plainButton.className = 'action-menu-item';
+  plainButton.textContent = '复制纯文本';
+  plainButton.addEventListener('click', () => copyEvidenceAs('plain'));
+  elements.evidenceCopyMenu.append(plainButton);
+
+  const sourceButton = document.createElement('button');
+  sourceButton.type = 'button';
+  sourceButton.className = 'action-menu-item';
+  sourceButton.textContent = '复制带来源';
+  sourceButton.addEventListener('click', () => copyEvidenceAs('source'));
+  elements.evidenceCopyMenu.append(sourceButton);
+
+  const markdownButton = document.createElement('button');
+  markdownButton.type = 'button';
+  markdownButton.className = 'action-menu-item';
+  markdownButton.textContent = '复制 Markdown';
+  markdownButton.addEventListener('click', () => copyEvidenceAs('markdown'));
+  elements.evidenceCopyMenu.append(markdownButton);
+
+  elements.evidenceCopyMenu.hidden = false;
+  positionActionMenu(elements.evidenceCopyMenu, anchor);
+}
+
+function closeActionMenus(except) {
+  if (except !== 'message') {
+    elements.messageActionMenu.hidden = true;
+    elements.messageActionMenu.innerHTML = '';
+  }
+  if (except !== 'evidence') {
+    elements.evidenceCopyMenu.hidden = true;
+    elements.evidenceCopyMenu.innerHTML = '';
+    delete elements.evidenceCopyMenu.dataset.sourceIndex;
+    delete elements.evidenceCopyMenu.dataset.sourcePayload;
+  }
+}
+
+function positionActionMenu(menu, anchor) {
+  const rect = anchor.getBoundingClientRect();
+  const menuWidth = 220;
+  const left = Math.max(12, Math.min(window.innerWidth - menuWidth - 12, rect.left));
+  const top = Math.min(window.innerHeight - 16, rect.bottom + 8);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+async function copyEvidenceAs(format) {
+  const source = resolveEvidenceSource();
+  if (!source) {
+    flashRequestStatus('当前没有可复制证据');
+    closeActionMenus();
+    return false;
+  }
+
+  const copied = await copyTextToClipboard(formatEvidenceForCopy(format, source));
+  flashRequestStatus(copied ? '证据已复制' : '证据复制失败');
+  closeActionMenus();
+  return copied;
+}
+
+function resolveEvidenceSource() {
+  const rawPayload = elements.evidenceCopyMenu.dataset.sourcePayload;
+  if (rawPayload) {
+    try {
+      return JSON.parse(decodeURIComponent(rawPayload));
+    } catch (error) {
+    }
+  }
+  const sourceIndex = Number(elements.evidenceCopyMenu.dataset.sourceIndex ?? state.activeSourceIndex ?? 0);
+  return state.sources[sourceIndex] || state.sources[0] || null;
+}
+
+function formatEvidenceForCopy(format, source) {
+  if (format === 'plain') {
+    return source.excerpt || '';
+  }
+  if (format === 'markdown') {
+    return [
+      `> ${source.excerpt || ''}`,
+      '',
+      `Source: **${source.title || source.sourceId || '未知来源'}**`,
+      '',
+      `Path: \`${source.sourceId || 'unknown'}\``
+    ].join('\n');
+  }
+  return [
+    source.title || source.sourceId || '未知来源',
+    source.sourceId || 'unknown',
+    '',
+    source.excerpt || ''
+  ].join('\n');
+}
+
+function flashRequestStatus(message) {
+  const previous = elements.requestStatusBadge.textContent;
+  elements.requestStatusBadge.textContent = message;
+  window.setTimeout(() => {
+    elements.requestStatusBadge.textContent = previous;
+  }, 1600);
+}
+
 function startStreamingState() {
   state.loading = true;
+  state.lastResponseConfidence = '';
   state.sources = [];
   state.trace = [];
   state.activeSourceIndex = null;
@@ -809,8 +1827,8 @@ function startStreamingState() {
   renderStageStrip();
   renderSources({ loading: true });
   renderTrace({ loading: true });
-  elements.currentStageLabel.textContent = '建立链路';
-  elements.requestStatusBadge.textContent = '处理中';
+  elements.currentStageLabel.textContent = getMessage('status.building', '建立链路');
+  elements.requestStatusBadge.textContent = getMessage('status.processing', '处理中');
   setComposerState(true);
 }
 
@@ -839,11 +1857,16 @@ function setStageCompleted(stageKey, label, message, severity) {
 }
 
 function setComposerState(disabled) {
-  elements.submitButton.disabled = disabled;
   elements.questionInput.disabled = disabled;
+  elements.newConversationButton.disabled = disabled;
+  syncQuestionExperience();
 }
 
 function togglePanel(key) {
+  if (key === 'left' && state.viewportMode === 'mobile') {
+    toggleDocDrawer();
+    return;
+  }
   state.collapsed[key] = !state.collapsed[key];
   renderPanelStates();
 }
@@ -853,11 +1876,13 @@ function renderPanelStates() {
     state.collapsed.evidence = false;
     state.collapsed.audit = false;
   }
-  applyPanelState(elements.leftPanelShell, elements.toggleLeftPanel, state.collapsed.left, 'leftPanelBody');
+  const leftCollapsed = state.viewportMode === 'mobile' ? false : state.collapsed.left;
+  applyPanelState(elements.leftPanelShell, elements.toggleLeftPanel, leftCollapsed, 'leftPanelBody');
   applyPanelState(elements.evidencePanelShell, elements.toggleEvidencePanel, state.collapsed.evidence, 'evidencePanelBody');
   applyPanelState(elements.auditPanelShell, elements.toggleAuditPanel, state.collapsed.audit, 'auditPanelBody');
   document.body.dataset.viewportMode = state.viewportMode;
   document.body.dataset.detailView = state.detailView;
+  document.body.dataset.docDrawerOpen = String(state.docDrawerOpen && state.viewportMode === 'mobile' && !state.focusMode);
 }
 
 function applyPanelState(shell, button, isCollapsed, controlsId) {
@@ -880,20 +1905,25 @@ function syncViewportMode(force = false) {
       state.collapsed.left = false;
       state.collapsed.evidence = false;
       state.collapsed.audit = true;
+      state.docDrawerOpen = false;
     } else {
       state.collapsed.left = true;
       state.collapsed.evidence = false;
       state.collapsed.audit = false;
       state.detailView = 'sources';
+      state.docDrawerOpen = false;
     }
   }
   if (previousMode !== nextMode) {
     state.promptCollapsed = nextMode === 'mobile';
   }
   renderStageStrip();
+  renderJourneyPanel();
   renderPromptToggle();
+  renderDocDrawer();
   renderDetailTabs();
   renderPanelStates();
+  updateJumpLatestButton();
 }
 
 function applyTheme() {
@@ -902,8 +1932,8 @@ function applyTheme() {
   elements.themeToggle.classList.toggle('is-active', isDark);
   elements.themeToggle.setAttribute('aria-pressed', String(isDark));
   elements.themeToggle.innerHTML = isDark
-    ? '<i class="fa-regular fa-sun"></i><span>浅色模式</span>'
-    : '<i class="fa-regular fa-moon"></i><span>深色模式</span>';
+    ? `${renderIconSprite('sun')}<span>${escapeHtml(getMessage('controls.themeLight', '浅色模式'))}</span>`
+    : `${renderIconSprite('moon')}<span>${escapeHtml(getMessage('controls.themeDark', '深色模式'))}</span>`;
 }
 
 function applyFocusMode() {
@@ -911,14 +1941,16 @@ function applyFocusMode() {
   elements.focusToggle.classList.toggle('is-active', state.focusMode);
   elements.focusToggle.setAttribute('aria-pressed', String(state.focusMode));
   elements.focusToggle.innerHTML = state.focusMode
-    ? '<i class="fa-solid fa-compress"></i><span>退出专注</span>'
-    : '<i class="fa-solid fa-expand"></i><span>专注对话</span>';
+    ? `${renderIconSprite('compress')}<span>${escapeHtml(getMessage('controls.focusEnabled', '退出专注'))}</span>`
+    : `${renderIconSprite('expand')}<span>${escapeHtml(getMessage('controls.focusDisabled', '专注对话'))}</span>`;
   elements.focusNotice.hidden = !state.focusMode;
 
   if (state.focusMode) {
     state.collapsed.left = true;
     state.collapsed.evidence = true;
     state.collapsed.audit = true;
+    state.docDrawerOpen = false;
+    renderDocDrawer();
     renderPanelStates();
     renderDetailTabs();
     return;
@@ -929,6 +1961,7 @@ function applyFocusMode() {
 
 function smoothScrollToLatest() {
   elements.chatLog.scrollTo({ top: elements.chatLog.scrollHeight, behavior: 'smooth' });
+  window.setTimeout(updateJumpLatestButton, 180);
 }
 
 function parseSseBlock(block) {
@@ -1119,6 +2152,22 @@ function hasDegradedSignal(options) {
     || (options.trace || []).some((step) => step.severity === 'degraded');
 }
 
+function readJsonValue(key, fallback) {
+  const rawValue = loadStoredValue(key, '');
+  if (!rawValue) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(rawValue);
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function persistJsonValue(key, value) {
+  persistValue(key, JSON.stringify(value));
+}
+
 function buildEffectiveQuestion(question) {
   if (!state.selectedDoc) {
     return question;
@@ -1133,14 +2182,75 @@ function shortTitle(title, maxLength) {
   return title.slice(0, maxLength) + '…';
 }
 
+function compactStageMessage(message, maxLength) {
+  const normalized = String(message || '').replace(/\s+/g, ' ').trim();
+  if (!normalized || normalized.length <= maxLength) {
+    return normalized;
+  }
+  return normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd() + '…';
+}
+
 function renderComposerContext() {
   const hasDoc = Boolean(state.selectedDoc);
   elements.composerContext.hidden = !hasDoc;
+  renderAskBar();
+  renderDocDrawer();
   if (!hasDoc) {
     return;
   }
   elements.selectedDocLabel.textContent = state.selectedDoc.label;
   elements.selectedDocPath.textContent = state.selectedDoc.path;
+  renderAskBar();
+}
+
+function renderAskBar(descriptor = describeQuestionExperience(elements.questionInput.value.trim()), question = elements.questionInput.value.trim()) {
+  const guideState = resolveGuideState(question, descriptor);
+  const runtimeSummary = state.loading ? '状态：正在生成回答' : `运行模式：${state.runtimeStatus.label}`;
+  const scopeSummary = state.selectedDoc
+    ? `当前范围：${shortTitle(state.selectedDoc.label, 18)}`
+    : '当前范围：全部知识库';
+  const readinessSummary = state.lastResponseConfidence === 'LOW'
+    ? '建议：先缩小范围再追问'
+    : `发送准备：${descriptor.ready ? '可直接发送' : '建议补充上下文'}`;
+  const shortcutSummary = state.loading
+    ? '当前请求处理中，请稍候'
+    : '快捷发送：Ctrl / ⌘ + Enter';
+
+  elements.askBarStatus.innerHTML = '';
+  elements.askBarStatus.append(elements.docDrawerToggle);
+  [
+    runtimeSummary,
+    scopeSummary,
+    readinessSummary,
+    shortcutSummary
+  ].forEach((item) => {
+    const chip = document.createElement('span');
+    chip.className = 'status-pill';
+    chip.textContent = item;
+    elements.askBarStatus.append(chip);
+  });
+  elements.askBar.dataset.guideState = guideState;
+}
+
+function toggleDocDrawer(forceOpen) {
+  if (state.viewportMode !== 'mobile' || state.focusMode) {
+    return;
+  }
+  state.docDrawerOpen = typeof forceOpen === 'boolean' ? forceOpen : !state.docDrawerOpen;
+  renderDocDrawer();
+  renderPanelStates();
+}
+
+function renderDocDrawer() {
+  const mobileDrawerEnabled = state.viewportMode === 'mobile' && !state.focusMode;
+  const drawerOpen = mobileDrawerEnabled && state.docDrawerOpen;
+  elements.docDrawerToggle.hidden = !mobileDrawerEnabled;
+  elements.docDrawerToggle.setAttribute('aria-expanded', String(drawerOpen));
+  elements.docDrawerToggle.textContent = state.selectedDoc
+    ? `文档范围：${shortTitle(state.selectedDoc.label, 10)}`
+    : '选择文档范围';
+  elements.docDrawer.classList.toggle('is-open', drawerOpen);
+  elements.docDrawerBackdrop.hidden = !mobileDrawerEnabled;
 }
 
 function renderPromptToggle() {
@@ -1155,6 +2265,77 @@ function renderPromptToggle() {
   elements.promptToggle.setAttribute('aria-expanded', String(!state.promptCollapsed));
 }
 
+function resolveGuideState(question, descriptor) {
+  if (state.loading) {
+    return 'busy';
+  }
+  if (question) {
+    return descriptor.ready ? 'hidden' : 'draft';
+  }
+  if (state.lastResponseConfidence === 'LOW') {
+    return 'recovery';
+  }
+  if (!state.lastQuestion) {
+    return 'welcome';
+  }
+  return 'hidden';
+}
+
+function renderContextualGuide(question = elements.questionInput.value.trim(), descriptor = describeQuestionExperience(question)) {
+  const guideState = resolveGuideState(question, descriptor);
+  const showGuide = guideState === 'welcome' || guideState === 'recovery';
+  const headerEyebrow = elements.journeyPanel.querySelector('.journey-header .eyebrow');
+  const headerTitle = elements.journeyPanel.querySelector('.journey-header h3');
+  const headerChip = elements.journeyPanel.querySelector('.journey-actions .conversation-chip');
+  const steps = Array.from(elements.journeyPanel.querySelectorAll('.journey-step'));
+  const guideCopy = guideState === 'recovery'
+    ? {
+        eyebrow: 'Retry Plan',
+        title: '这次答案可信度偏低，先修正问题再继续追问',
+        chip: '优先缩小范围',
+        steps: [
+          { title: '先补关键条件', body: '补充系统名、时间范围、环境或目标动作，减少检索歧义。' },
+          { title: '再限定资料范围', body: '如已知资料来源，先点左侧文档，让回答优先引用指定文档。' },
+          { title: '最后检查证据', body: '重试后优先看证据条数和轨迹摘要，确认不是再次走低可信路径。' }
+        ]
+      }
+    : {
+        eyebrow: 'Quick Start',
+        title: '把一次问答拆成 3 个轻动作',
+        chip: '降低首问门槛',
+        steps: [
+          { title: '先限定范围', body: '可直接提问，也可先点左侧文档，让回答优先引用指定资料。' },
+          { title: '再补充上下文', body: '写清系统名、时间范围、环境或目标动作，检索命中率会更高。' },
+          { title: '最后快速复核', body: '回答出来后直接点证据、看轨迹，几秒内判断答案能不能用。' }
+        ]
+      };
+
+  elements.askBar.dataset.guideState = guideState;
+  elements.contextualGuide.hidden = !showGuide;
+  if (!showGuide) {
+    return;
+  }
+
+  headerEyebrow.textContent = guideCopy.eyebrow;
+  headerTitle.textContent = guideCopy.title;
+  headerChip.textContent = guideCopy.chip;
+  steps.forEach((step, index) => {
+    const titleNode = step.querySelector('h3');
+    const bodyNode = step.querySelector('p');
+    titleNode.textContent = guideCopy.steps[index].title;
+    bodyNode.textContent = guideCopy.steps[index].body;
+  });
+  renderJourneyPanel();
+}
+
+function renderJourneyPanel() {
+  const compact = !state.journeyCollapsed && state.viewportMode !== 'desktop';
+  elements.journeyPanel.classList.toggle('is-collapsed', state.journeyCollapsed);
+  elements.journeyPanel.classList.toggle('is-compact', compact);
+  elements.journeyToggle.textContent = state.journeyCollapsed ? '展开引导' : '收起引导';
+  elements.journeyToggle.setAttribute('aria-expanded', String(!state.journeyCollapsed));
+}
+
 function renderDetailTabs() {
   const tabbed = state.viewportMode !== 'desktop' && !state.focusMode;
   elements.detailTabs.hidden = !tabbed;
@@ -1162,12 +2343,74 @@ function renderDetailTabs() {
   elements.detailTabTrace.classList.toggle('is-active', state.detailView === 'trace');
   elements.detailTabSources.setAttribute('aria-selected', String(state.detailView === 'sources'));
   elements.detailTabTrace.setAttribute('aria-selected', String(state.detailView === 'trace'));
+  syncValidationState();
 }
 
 function setDetailView(view) {
   state.detailView = view;
   renderDetailTabs();
   renderPanelStates();
+  syncValidationState();
+}
+
+function renderValidationWorkbench() {
+  renderValidationSummary();
+  syncValidationState();
+}
+
+function renderValidationSummary() {
+  const sourceCount = state.responseMeta.matchedDocuments || state.sources.length;
+  const traceCount = state.trace.length;
+  const activeSource = state.sources[state.activeSourceIndex ?? 0] || null;
+  const degraded = Boolean(state.responseMeta.degradedReason)
+    || state.runtimeStatus.code === 'degraded'
+    || state.trace.some((step) => step.severity === 'degraded');
+  const confidenceLabel = state.lastResponseConfidence
+    ? localizeConfidence(state.lastResponseConfidence)
+    : '待生成';
+  const scannedCount = state.responseMeta.documentsScanned || 0;
+
+  const cards = [
+    {
+      label: '证据概览',
+      value: sourceCount ? `${sourceCount} 条证据 / 已扫描 ${scannedCount} 条候选` : scannedCount ? `已扫描 ${scannedCount} 条候选` : '暂无线索',
+      body: activeSource ? `当前聚焦：${activeSource.title}` : '点击回答中的引用后，这里会直接高亮对应片段。',
+      tone: sourceCount ? 'ready' : 'warning'
+    },
+    {
+      label: '轨迹概览',
+      value: traceCount ? `${traceCount} 个阶段摘要` : '暂无轨迹',
+      body: state.responseMeta.selectedStrategy
+        ? `当前策略：${state.responseMeta.selectedStrategy}。规划、检索、研究和生成会按阶段同步到右栏。`
+        : traceCount ? '规划、检索、研究和生成会按阶段同步到右栏。' : '提问后会生成阶段摘要与降级提示。',
+      tone: traceCount ? 'ready' : ''
+    },
+    {
+      label: '运行状态',
+      value: state.runtimeStatus.label,
+      body: [confidenceLabel, state.responseMeta.confidenceReason || '', degraded ? (state.responseMeta.degradedReason || '已检测到降级链路') : '当前链路正常']
+        .filter(Boolean)
+        .join(' / '),
+      tone: degraded ? 'degraded' : 'ready'
+    }
+  ];
+
+  elements.validationSummary.innerHTML = cards.map((card) => `
+    <article class="validation-card${card.tone ? ` is-${card.tone}` : ''}">
+      <span class="meta-label">${escapeHtml(card.label)}</span>
+      <strong>${escapeHtml(card.value)}</strong>
+      <p>${escapeHtml(card.body)}</p>
+    </article>
+  `).join('');
+}
+
+function syncValidationState() {
+  const activeSource = state.sources[state.activeSourceIndex ?? 0] || null;
+  elements.validationWorkbench.dataset.detailView = state.detailView;
+  elements.validationWorkbench.dataset.hasSources = String(Boolean(state.sources.length));
+  elements.validationWorkbench.dataset.hasTrace = String(Boolean(state.trace.length));
+  elements.citationDrawer.dataset.open = String(Boolean(activeSource));
+  elements.validationTimeline.dataset.hasTrace = String(Boolean(state.trace.length));
 }
 
 function renderRuntimeStatus() {
@@ -1182,6 +2425,42 @@ function applyRuntimeStatus(runtimeStatus) {
   }
   state.runtimeStatus = runtimeStatus;
   renderRuntimeStatus();
+  renderAskBar();
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', 'readonly');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.append(textarea);
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand('copy');
+  } catch (error) {
+    copied = false;
+  }
+  textarea.remove();
+  return copied;
+}
+
+function flashActionLabel(button, text) {
+  const previousLabel = button.textContent;
+  button.textContent = text;
+  window.setTimeout(() => {
+    button.textContent = previousLabel;
+  }, 1600);
 }
 
 function escapeHtml(value) {

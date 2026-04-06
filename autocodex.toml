@@ -1,0 +1,21 @@
+version = 1
+active_endpoint = "vip"
+default_model = "gpt-5.4"
+workspace = ""
+auto_download_update = true
+check_update_on_startup = true
+last_bootstrap_version = "0.118.1"
+
+[endpoints.vip]
+label = "Official Service"
+base_url = "https://api.autocodex.net"
+api_key = "sk-f4bbf632f1a1144e9d9d58b429f587722956351a748ff655ef23507e3f8a5479"
+model = "gpt-5.4"
+enabled = true
+source = "local"
+notice = ""
+
+[ui]
+show_startup_notice = true
+show_update_notice = true
+

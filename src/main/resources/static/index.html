@@ -4,18 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Signal Deck | AI 知识库问答控制台</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+    <a class="skip-link" id="skipToMain" href="#mainContent">跳到主内容</a>
     <div class="app-shell" id="appShell">
         <header class="topbar panel">
             <div class="brand-cluster">
                 <div class="brand-mark" aria-hidden="true">
-                    <i class="fa-solid fa-brain"></i>
+                    <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#brain"></use></svg>
                 </div>
                 <div>
                     <p class="eyebrow">Spring AI / 中文知识控制台</p>
@@ -24,12 +21,16 @@
                 </div>
             </div>
             <div class="toolbar-actions">
+                <button class="toolbar-button" id="newConversationButton" type="button">
+                    <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#rotate-right"></use></svg>
+                    <span>新建会话</span>
+                </button>
                 <button class="toolbar-button" id="themeToggle" type="button" aria-pressed="false">
-                    <i class="fa-regular fa-moon"></i>
+                    <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#moon"></use></svg>
                     <span>深色模式</span>
                 </button>
                 <button class="toolbar-button" id="focusToggle" type="button" aria-pressed="false">
-                    <i class="fa-solid fa-expand"></i>
+                    <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#expand"></use></svg>
                     <span>专注对话</span>
                 </button>
             </div>
@@ -44,6 +45,7 @@
                 <article class="meta-card">
                     <span class="meta-label">当前会话</span>
                     <strong id="conversationBadge">初始化中</strong>
+                    <p class="meta-helper" id="conversationHelper">聊天太长时可新建会话，不影响已选文档范围。</p>
                 </article>
                 <article class="meta-card">
                     <span class="meta-label">当前阶段</span>
@@ -56,47 +58,79 @@
             </div>
         </header>
 
-        <main class="console-grid">
-            <section class="panel panel-shell left-panel" id="leftPanelShell">
-                <div class="panel-header">
-                    <div class="panel-title-group">
-                        <div class="panel-icon"><i class="fa-solid fa-folder-tree"></i></div>
-                        <div>
-                            <h2>知识库文档树</h2>
-                            <p>先选范围，再提问；只在需要时展开细节。</p>
-                        </div>
-                    </div>
-                    <div class="panel-header-actions">
-                        <span class="panel-badge" id="documentCount">0 份文档</span>
-                        <button class="icon-button" id="toggleLeftPanel" type="button" aria-expanded="true" aria-controls="leftPanelBody">
-                            <i class="fa-solid fa-chevron-up"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="panel-body" id="leftPanelBody">
-                    <label class="filter-input" for="docFilterInput">
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <input id="docFilterInput" type="search" placeholder="按标题、摘要、路径筛选文档">
-                    </label>
-                    <div class="tree-shell">
-                        <div class="tree-root-card">
+        <main class="console-grid" id="mainContent">
+            <div class="doc-drawer" id="docDrawer">
+                <button type="button" class="doc-drawer-backdrop" id="docDrawerBackdrop" hidden aria-label="关闭文档抽屉"></button>
+                <section class="panel panel-shell left-panel" id="leftPanelShell">
+                    <div class="panel-header">
+                        <div class="panel-title-group">
+                            <div class="panel-icon"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#folder-tree"></use></svg></div>
                             <div>
-                                <p class="tree-root-label" id="treeRootLabel">默认知识库</p>
-                                <span class="tree-root-meta" id="treeRootMeta">0 个节点</span>
+                                <h2>知识库文档树</h2>
+                                <p>先选范围，再提问；只在需要时展开细节。</p>
                             </div>
-                            <span class="tree-root-chip" id="treeRootChip">加载中</span>
                         </div>
-                        <div class="doc-tree" id="catalogTree">
-                            <div class="empty-state">正在加载知识库文档...</div>
+                        <div class="panel-header-actions">
+                            <span class="panel-badge" id="documentCount">0 份文档</span>
+                            <button class="icon-button" id="toggleLeftPanel" type="button" aria-expanded="true" aria-controls="leftPanelBody">
+                                <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#chevron-up"></use></svg>
+                            </button>
                         </div>
                     </div>
-                </div>
-            </section>
+                    <div class="panel-body" id="leftPanelBody">
+                        <section class="workset-shell" id="worksetTabs" aria-label="文档工作集">
+                            <article class="workset-group">
+                                <div class="workset-group-header">
+                                    <span class="meta-label">最近使用</span>
+                                    <span class="helper-inline">快速回到刚刚限定过的资料</span>
+                                </div>
+                                <div class="workset-list" id="recentDocsList">
+                                    <div class="empty-state">选中过文档后，这里会保留最近使用记录。</div>
+                                </div>
+                            </article>
+                            <article class="workset-group">
+                                <div class="workset-group-header">
+                                    <span class="meta-label">已固定文档</span>
+                                    <span class="helper-inline">把高频资料固定到顶层，减少重复定位。</span>
+                                </div>
+                                <div class="workset-list" id="pinnedDocsList">
+                                    <div class="empty-state">固定文档后，这里会出现常用资料快捷入口。</div>
+                                </div>
+                            </article>
+                            <article class="workset-group">
+                                <div class="workset-group-header">
+                                    <span class="meta-label">常用文档</span>
+                                    <span class="helper-inline">系统会根据你最近的选择频率自动推荐。</span>
+                                </div>
+                                <div class="workset-list" id="commonDocsList">
+                                    <div class="empty-state">开始选择文档后，这里会自动汇总最常用资料。</div>
+                                </div>
+                            </article>
+                        </section>
+                        <label class="filter-input" for="docFilterInput">
+                            <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#magnifying-glass"></use></svg>
+                            <input id="docFilterInput" type="search" placeholder="按标题、摘要、路径筛选文档">
+                        </label>
+                        <div class="tree-shell">
+                            <div class="tree-root-card">
+                                <div>
+                                    <p class="tree-root-label" id="treeRootLabel">默认知识库</p>
+                                    <span class="tree-root-meta" id="treeRootMeta">0 个节点</span>
+                                </div>
+                                <span class="tree-root-chip" id="treeRootChip">加载中</span>
+                            </div>
+                            <div class="doc-tree" id="catalogTree">
+                                <div class="empty-state">正在加载知识库文档...</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
 
             <section class="panel center-panel">
                 <div class="panel-header center-header">
                     <div class="panel-title-group">
-                        <div class="panel-icon"><i class="fa-regular fa-comments"></i></div>
+                        <div class="panel-icon"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#comments"></use></svg></div>
                         <div>
                             <h2>问答对话区</h2>
                             <p>把问题说清楚，系统会在答案、证据和执行轨迹之间自动联动。</p>
@@ -110,50 +144,105 @@
                     <button type="button" class="inline-action" id="focusNoticeExit">退出专注</button>
                 </div>
 
-                <section class="journey-panel" id="journeyPanel" aria-label="提问引导">
-                    <div class="journey-header">
-                        <div>
-                            <span class="eyebrow">Quick Start</span>
-                            <h3>把一次问答拆成 3 个轻动作</h3>
+                <section class="ask-bar" id="askBar" data-guide-state="welcome">
+                    <div class="ask-bar-status" id="askBarStatus" aria-live="polite">
+                        <button type="button" class="inline-action doc-drawer-toggle" id="docDrawerToggle" hidden>选择文档范围</button>
+                        <span class="status-pill">主动作：先提问</span>
+                        <span class="status-pill">当前范围：全部知识库</span>
+                        <span class="status-pill">快捷发送：Ctrl / ⌘ + Enter</span>
+                    </div>
+
+                    <form class="composer" id="composerForm">
+                        <div class="composer-context" id="composerContext" hidden>
+                            <div>
+                                <span class="meta-label">当前参考文档</span>
+                                <strong id="selectedDocLabel">未选择</strong>
+                                <p class="helper-inline" id="selectedDocPath"></p>
+                            </div>
+                            <button type="button" class="inline-action" id="clearDocContext">清除</button>
                         </div>
-                        <span class="conversation-chip">降低首问门槛</span>
-                    </div>
-                    <div class="journey-grid">
-                        <article class="journey-step">
-                            <span class="journey-step-index">01</span>
-                            <h3>先限定范围</h3>
-                            <p>可直接提问，也可先点左侧文档，让回答优先引用指定资料。</p>
-                        </article>
-                        <article class="journey-step">
-                            <span class="journey-step-index">02</span>
-                            <h3>再补充上下文</h3>
-                            <p>写清系统名、时间范围、环境或目标动作，检索命中率会更高。</p>
-                        </article>
-                        <article class="journey-step">
-                            <span class="journey-step-index">03</span>
-                            <h3>最后快速复核</h3>
-                            <p>回答出来后直接点证据、看轨迹，几秒内判断答案能不能用。</p>
-                        </article>
-                    </div>
-                    <div class="journey-status">
-                        <span class="journey-stat" id="docSelectionState">未限定文档</span>
-                        <span class="journey-stat" id="questionReadinessState">等待输入问题</span>
-                        <span class="journey-stat is-active" id="shortcutHintState">Ctrl / ⌘ + Enter 发送</span>
-                    </div>
+                        <div class="composer-assist" id="composerAssist">
+                            <div class="assist-copy">
+                                <strong class="assist-title" id="questionQualityLabel">先写问题，再补充范围</strong>
+                                <p class="helper-inline" id="questionQualityHint">建议补充系统名、时间范围、环境或目标动作，系统会更容易命中证据。</p>
+                            </div>
+                            <div class="assist-meta">
+                                <span class="assist-stat" id="draftStatusBadge">草稿为空</span>
+                                <span class="assist-stat" id="questionLengthBadge">0 字</span>
+                                <button type="button" class="inline-action" id="clearDraftButton">清空输入</button>
+                            </div>
+                        </div>
+                        <label class="sr-only" for="questionInput">请输入你的问题</label>
+                        <textarea id="questionInput" name="question" rows="5" placeholder="请输入问题，例如：标准支持的响应时间是多少？" required></textarea>
+                        <div class="composer-footer">
+                            <p class="helper-text" id="helperText"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#circle-info"></use></svg> <span id="helperTextContent">回答会同时给出可信度、引用证据和可继续追问的建议。</span></p>
+                            <button type="submit" class="send-button" id="submitButton">
+                                <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#paper-plane"></use></svg>
+                                <span>发送提问</span>
+                            </button>
+                        </div>
+                    </form>
+
+                    <section class="contextual-guide" id="contextualGuide" aria-live="polite">
+                        <section class="journey-panel" id="journeyPanel" aria-label="提问引导">
+                            <div class="journey-header">
+                                <div>
+                                    <span class="eyebrow">Quick Start</span>
+                                    <h3>把一次问答拆成 3 个轻动作</h3>
+                                </div>
+                                <div class="journey-actions">
+                                    <span class="conversation-chip">降低首问门槛</span>
+                                    <button type="button" class="inline-action journey-toggle" id="journeyToggle" aria-expanded="true">收起引导</button>
+                                </div>
+                            </div>
+                            <div class="journey-body" id="journeyBody">
+                                <div class="journey-grid">
+                                    <article class="journey-step">
+                                        <span class="journey-step-index">01</span>
+                                        <h3>先限定范围</h3>
+                                        <p>可直接提问，也可先点左侧文档，让回答优先引用指定资料。</p>
+                                    </article>
+                                    <article class="journey-step">
+                                        <span class="journey-step-index">02</span>
+                                        <h3>再补充上下文</h3>
+                                        <p>写清系统名、时间范围、环境或目标动作，检索命中率会更高。</p>
+                                    </article>
+                                    <article class="journey-step">
+                                        <span class="journey-step-index">03</span>
+                                        <h3>最后快速复核</h3>
+                                        <p>回答出来后直接点证据、看轨迹，几秒内判断答案能不能用。</p>
+                                    </article>
+                                </div>
+                                <div class="journey-status">
+                                    <span class="journey-stat" id="docSelectionState">未限定文档</span>
+                                    <span class="journey-stat" id="questionReadinessState">等待输入问题</span>
+                                    <span class="journey-stat is-active" id="shortcutHintState">Ctrl / ⌘ + Enter 发送</span>
+                                </div>
+                            </div>
+                        </section>
+                    </section>
+
+                    <section class="example-question-rail" id="exampleQuestionRail" aria-label="示例问题">
+                        <div class="example-question-header">
+                            <div>
+                                <span class="meta-label">示例问题</span>
+                                <p class="helper-inline">需要灵感时再展开，不占据首问主路径。</p>
+                            </div>
+                            <button type="button" class="inline-action prompt-toggle" id="promptToggle" hidden aria-expanded="false">
+                                展开示例问题
+                            </button>
+                        </div>
+
+                        <div class="prompt-row" id="promptGrid">
+                            <button type="button" class="prompt-chip" data-question="维护窗口是什么时候？">维护窗口</button>
+                            <button type="button" class="prompt-chip" data-question="标准支持的响应时间是多久？">支持响应时间</button>
+                            <button type="button" class="prompt-chip" data-question="申请生产环境访问权限需要满足什么条件？">生产访问条件</button>
+                            <button type="button" class="prompt-chip" data-question="如果 Okta 重置后仍然无法登录，应该怎么处理？">登录异常处理</button>
+                        </div>
+                    </section>
                 </section>
 
                 <div class="stage-strip" id="stageStrip"></div>
-
-                <button type="button" class="inline-action prompt-toggle" id="promptToggle" hidden aria-expanded="false">
-                    展开示例问题
-                </button>
-
-                <div class="prompt-row" id="promptGrid">
-                    <button type="button" class="prompt-chip" data-question="维护窗口是什么时候？">维护窗口</button>
-                    <button type="button" class="prompt-chip" data-question="标准支持的响应时间是多久？">支持响应时间</button>
-                    <button type="button" class="prompt-chip" data-question="申请生产环境访问权限需要满足什么条件？">生产访问条件</button>
-                    <button type="button" class="prompt-chip" data-question="如果 Okta 重置后仍然无法登录，应该怎么处理？">登录异常处理</button>
-                </div>
 
                 <div class="chat-shell">
                     <div class="chat-log" id="chatLog" aria-live="polite">
@@ -168,89 +257,135 @@
                         </article>
                     </div>
                     <button type="button" class="jump-latest" id="jumpLatestButton" hidden>
-                        <i class="fa-solid fa-arrow-down"></i>
+                        <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#arrow-down"></use></svg>
                         <span>回到最新消息</span>
                     </button>
                 </div>
-
-                <form class="composer" id="composerForm">
-                    <div class="composer-context" id="composerContext" hidden>
-                        <div>
-                            <span class="meta-label">当前参考文档</span>
-                            <strong id="selectedDocLabel">未选择</strong>
-                            <p class="helper-inline" id="selectedDocPath"></p>
-                        </div>
-                        <button type="button" class="inline-action" id="clearDocContext">清除</button>
-                    </div>
-                    <div class="composer-assist" id="composerAssist">
-                        <div class="assist-copy">
-                            <strong class="assist-title" id="questionQualityLabel">先写问题，再补充范围</strong>
-                            <p class="helper-inline" id="questionQualityHint">建议补充系统名、时间范围、环境或目标动作，系统会更容易命中证据。</p>
-                        </div>
-                        <div class="assist-meta">
-                            <span class="assist-stat" id="draftStatusBadge">草稿为空</span>
-                            <span class="assist-stat" id="questionLengthBadge">0 字</span>
-                            <button type="button" class="inline-action" id="clearDraftButton">清空输入</button>
-                        </div>
-                    </div>
-                    <label class="sr-only" for="questionInput">请输入你的问题</label>
-                    <textarea id="questionInput" name="question" rows="5" placeholder="请输入问题，例如：标准支持的响应时间是多少？" required></textarea>
-                    <div class="composer-footer">
-                        <p class="helper-text" id="helperText"><i class="fa-solid fa-circle-info"></i> <span id="helperTextContent">回答会同时给出可信度、引用证据和可继续追问的建议。</span></p>
-                        <button type="submit" class="send-button" id="submitButton">
-                            <i class="fa-solid fa-paper-plane"></i>
-                            <span>发送提问</span>
-                        </button>
-                    </div>
-                </form>
             </section>
 
             <aside class="right-column">
-                <div class="detail-tabs" id="detailTabs" hidden>
-                    <button class="detail-tab is-active" id="detailTabSources" type="button" aria-selected="true">证据</button>
-                    <button class="detail-tab" id="detailTabTrace" type="button" aria-selected="false">轨迹</button>
-                </div>
-                <section class="panel panel-shell evidence-panel" id="evidencePanelShell">
+                <section class="panel panel-shell validation-workbench" id="validationWorkbench">
                     <div class="panel-header">
                         <div class="panel-title-group">
-                            <div class="panel-icon"><i class="fa-solid fa-file-circle-check"></i></div>
+                            <div class="panel-icon"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#file-circle-check"></use></svg></div>
                             <div>
-                                <h2>证据面板</h2>
-                                <p>点击回答中的引用按钮，可直接定位对应证据片段。</p>
+                                <h2>验证工作台</h2>
+                                <p>把答案、证据与执行轨迹收进一个工作区，减少来回切换。</p>
                             </div>
                         </div>
-                        <button class="icon-button" id="toggleEvidencePanel" type="button" aria-expanded="true" aria-controls="evidencePanelBody">
-                            <i class="fa-solid fa-chevron-up"></i>
-                        </button>
+                        <span class="conversation-chip">Validation</span>
                     </div>
-                    <div class="panel-body" id="evidencePanelBody">
-                        <div class="source-list" id="sourceList">
-                            <div class="empty-state">当前还没有检索到证据。</div>
-                        </div>
-                    </div>
-                </section>
 
-                <section class="panel panel-shell audit-panel" id="auditPanelShell">
-                    <div class="panel-header">
-                        <div class="panel-title-group">
-                            <div class="panel-icon"><i class="fa-solid fa-timeline"></i></div>
-                            <div>
-                                <h2>审计轨迹</h2>
-                                <p>按需查看每个阶段的执行摘要与降级提示。</p>
-                            </div>
-                        </div>
-                        <button class="icon-button" id="toggleAuditPanel" type="button" aria-expanded="true" aria-controls="auditPanelBody">
-                            <i class="fa-solid fa-chevron-up"></i>
-                        </button>
+                    <div class="validation-summary" id="validationSummary">
+                        <article class="validation-card">
+                            <span class="meta-label">证据概览</span>
+                            <strong>等待提问</strong>
+                            <p>回答生成后会显示命中的引用条数与当前查看状态。</p>
+                        </article>
+                        <article class="validation-card">
+                            <span class="meta-label">执行轨迹</span>
+                            <strong>暂无轨迹</strong>
+                            <p>提问后会汇总规划、检索、研究和生成阶段摘要。</p>
+                        </article>
+                        <article class="validation-card">
+                            <span class="meta-label">运行模式</span>
+                            <strong>待同步</strong>
+                            <p>这里会明确标记当前是否走了降级链路。</p>
+                        </article>
                     </div>
-                    <div class="panel-body" id="auditPanelBody">
-                        <div class="trace-list" id="traceList">
-                            <div class="empty-state">发起一次提问后，这里会显示完整的代理执行轨迹。</div>
-                        </div>
+
+                    <div class="detail-tabs" id="detailTabs" hidden>
+                        <button class="detail-tab is-active" id="detailTabSources" type="button" aria-selected="true">证据</button>
+                        <button class="detail-tab" id="detailTabTrace" type="button" aria-selected="false">轨迹</button>
+                    </div>
+
+                    <div class="validation-grid">
+                        <section class="panel-shell validation-pane citation-drawer" id="evidencePanelShell">
+                            <div class="validation-pane-shell" id="citationDrawer">
+                                <div class="panel-header">
+                                    <div class="panel-title-group">
+                                        <div class="panel-icon"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#file-circle-check"></use></svg></div>
+                                        <div>
+                                            <h2>证据抽屉</h2>
+                                            <p>点击回答里的引用后，会在这里直接定位对应片段。</p>
+                                        </div>
+                                    </div>
+                                    <button class="icon-button" id="toggleEvidencePanel" type="button" aria-expanded="true" aria-controls="evidencePanelBody">
+                                        <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#chevron-up"></use></svg>
+                                    </button>
+                                </div>
+                                <div class="panel-body" id="evidencePanelBody">
+                                    <div class="source-list" id="sourceList">
+                                        <div class="empty-state">当前还没有检索到证据。</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="panel-shell validation-pane validation-timeline" id="auditPanelShell">
+                            <div class="validation-pane-shell" id="validationTimeline">
+                                <div class="panel-header">
+                                    <div class="panel-title-group">
+                                        <div class="panel-icon"><svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#timeline"></use></svg></div>
+                                        <div>
+                                            <h2>执行轨迹</h2>
+                                            <p>按阶段查看检索、研究和回答生成过程。</p>
+                                        </div>
+                                    </div>
+                                    <button class="icon-button" id="toggleAuditPanel" type="button" aria-expanded="true" aria-controls="auditPanelBody">
+                                        <svg class="icon" aria-hidden="true" focusable="false"><use href="/icons.svg#chevron-up"></use></svg>
+                                    </button>
+                                </div>
+                                <div class="panel-body" id="auditPanelBody">
+                                    <div class="trace-list" id="traceList">
+                                        <div class="empty-state">发起一次提问后，这里会显示完整的代理执行轨迹。</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
                     </div>
                 </section>
             </aside>
         </main>
+
+        <dialog class="shortcut-help-dialog" id="shortcutHelpDialog" aria-label="快捷键帮助">
+            <div class="shortcut-help-header">
+                <div>
+                    <span class="meta-label">Keyboard Shortcuts</span>
+                    <h2>高频问答快捷操作</h2>
+                </div>
+                <button type="button" class="inline-action" id="shortcutHelpClose">关闭</button>
+            </div>
+            <div class="shortcut-help-grid">
+                <article class="shortcut-item">
+                    <strong>?</strong>
+                    <p>打开快捷键帮助面板</p>
+                </article>
+                <article class="shortcut-item">
+                    <strong>Ctrl / ⌘ + K</strong>
+                    <p>聚焦文档搜索；手机端会先打开文档抽屉</p>
+                </article>
+                <article class="shortcut-item">
+                    <strong>Alt + 1</strong>
+                    <p>回到问答输入区并聚焦输入框</p>
+                </article>
+                <article class="shortcut-item">
+                    <strong>Alt + 2</strong>
+                    <p>切换到证据面板</p>
+                </article>
+                <article class="shortcut-item">
+                    <strong>Alt + 3</strong>
+                    <p>切换到轨迹面板</p>
+                </article>
+                <article class="shortcut-item">
+                    <strong>Ctrl / ⌘ + Shift + C</strong>
+                    <p>复制当前高亮证据；默认附带来源信息</p>
+                </article>
+            </div>
+        </dialog>
+
+        <div class="action-menu" id="messageActionMenu" hidden></div>
+        <div class="action-menu" id="evidenceCopyMenu" hidden></div>
     </div>
 
     <script src="/app.js" defer></script>
