@@ -37,11 +37,13 @@ local.yml
 /.m2/
 /.omx/
 /.playwright-cli/
+/.playwright-mcp/
 test-results/
 output/
 output/logs/
 .codex-*.log
 .codex-*.pid
 .codex-*.json
+autocodex.exe
 
 
