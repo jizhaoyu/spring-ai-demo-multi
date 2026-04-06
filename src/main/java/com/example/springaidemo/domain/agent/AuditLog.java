@@ -9,6 +9,11 @@ public record AuditLog(
         String traceId,
         Instant createdAt,
         long totalLatencyMs,
+        int documentsScanned,
+        int matchedDocuments,
+        String degradedReason,
+        String confidenceReason,
+        String selectedStrategy,
         List<AgentTraceStep> agentTrace,
         List<ToolCall> toolCalls,
         List<ToolResult> toolResults

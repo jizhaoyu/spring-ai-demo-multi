@@ -23,6 +23,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,7 @@ import org.springframework.util.StringUtils;
 public class MultiAgentQaOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(MultiAgentQaOrchestrator.class);
+    private static final Pattern JSON_MESSAGE_PATTERN = Pattern.compile("\"message\"\\s*:\\s*\"([^\"]+)\"");
     private static final StageSpec PLANNER_STAGE = new StageSpec("planner", "规划");
     private static final StageSpec RETRIEVAL_STAGE = new StageSpec("retrieval", "检索");
     private static final StageSpec RESEARCH_STAGE = new StageSpec("research", "研究");
@@ -89,11 +92,27 @@ public class MultiAgentQaOrchestrator {
                     listener);
 
             this.conversationMemory.appendExchange(conversationId, request.question(), answerDraft.answer());
+            int documentsScanned = searchResult.toolResult().documentsScanned();
+            int matchedDocuments = searchResult.toolResult().matchedDocuments();
+            String degradedReason = deriveDegradedReason(trace);
+            String confidenceReason = deriveConfidenceReason(
+                    answerDraft.confidence(),
+                    matchedDocuments,
+                    documentsScanned,
+                    degradedReason,
+                    plan.route()
+            );
+            List<String> recoveryActions = deriveRecoveryActions(answerDraft, matchedDocuments, degradedReason);
 
             AuditLog auditLog = new AuditLog(
                     context.traceId(),
                     startedAt,
                     Duration.between(startedAt, Instant.now()).toMillis(),
+                    documentsScanned,
+                    matchedDocuments,
+                    degradedReason,
+                    confidenceReason,
+                    plan.route(),
                     List.copyOf(trace),
                     List.of(searchResult.toolCall()),
                     List.of(searchResult.toolResult())
@@ -105,6 +124,12 @@ public class MultiAgentQaOrchestrator {
                     answerDraft.answer(),
                     answerDraft.confidence(),
                     answerDraft.followUpQuestions(),
+                    documentsScanned,
+                    matchedDocuments,
+                    degradedReason,
+                    confidenceReason,
+                    plan.route(),
+                    recoveryActions,
                     searchResult.citations(),
                     auditLog
             );
@@ -127,7 +152,7 @@ public class MultiAgentQaOrchestrator {
             return completeStage(trace, listener, PLANNER_STAGE, startedAt, summary, plan, stageModeSeverity());
         }
         catch (Exception exception) {
-            log.warn("Planner stage failed, falling back to local planner", exception);
+            logStageFallback("Planner", "local planner", exception);
             QueryPlan fallbackPlan = this.fallbackQueryPlannerAgent.plan(request, context);
             String summary = "规划代理调用模型失败，已切换到本地规划策略。原因：" + compactReason(exception);
             return completeStage(trace, listener, PLANNER_STAGE, startedAt, summary, fallbackPlan, "degraded");
@@ -178,7 +203,7 @@ public class MultiAgentQaOrchestrator {
             return completeStage(trace, listener, RESEARCH_STAGE, startedAt, summary, researchBrief, stageModeSeverity());
         }
         catch (Exception exception) {
-            log.warn("Research stage failed, falling back to local research agent", exception);
+            logStageFallback("Research", "local research agent", exception);
             ResearchBrief fallbackResearch = this.fallbackResearchAgent.research(
                     request,
                     context,
@@ -207,7 +232,7 @@ public class MultiAgentQaOrchestrator {
             return completeStage(trace, listener, RESPONSE_STAGE, startedAt, summary, answerDraft, stageModeSeverity());
         }
         catch (Exception exception) {
-            log.warn("Response stage failed, falling back to local response composer", exception);
+            logStageFallback("Response", "local response composer", exception);
             AnswerDraft fallbackAnswer = this.fallbackResponseComposerAgent.answer(
                     request,
                     context,
@@ -232,6 +257,65 @@ public class MultiAgentQaOrchestrator {
         return this.runtimeStatusService.isModelEnhancedMode() ? "normal" : "degraded";
     }
 
+    private String deriveDegradedReason(List<AgentTraceStep> trace) {
+        for (AgentTraceStep step : trace) {
+            if (!"degraded".equals(step.severity())) {
+                continue;
+            }
+            String summary = step.summary();
+            if (summary.contains("原因：")) {
+                return summary.substring(summary.indexOf("原因：") + 3).trim();
+            }
+        }
+        if (!this.runtimeStatusService.isModelEnhancedMode()) {
+            return "当前使用本地降级模式，回答链路未调用外部模型。";
+        }
+        return trace.stream()
+                .filter(step -> "degraded".equals(step.severity()))
+                .map(AgentTraceStep::summary)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String deriveConfidenceReason(String confidence, int matchedDocuments, int documentsScanned,
+            String degradedReason, String selectedStrategy) {
+        String normalizedConfidence = StringUtils.hasText(confidence) ? confidence.trim().toUpperCase() : "MEDIUM";
+        boolean degraded = StringUtils.hasText(degradedReason);
+        return switch (normalizedConfidence) {
+            case "LOW" -> matchedDocuments == 0
+                    ? "未命中可靠证据片段，回答可信度较低。"
+                    : "虽然命中 " + matchedDocuments + " 条证据，但当前链路存在降级或信息缺口，建议继续核对。";
+            case "HIGH" -> degraded
+                    ? "命中 " + matchedDocuments + " 条证据，但回答链路存在降级信号，建议结合验证工作台复核。"
+                    : "已扫描 " + documentsScanned + " 份候选内容并命中 " + matchedDocuments + " 条证据，回答与策略 "
+                            + selectedStrategy + " 保持一致。";
+            default -> degraded
+                    ? "命中 " + matchedDocuments + " 条证据，但链路存在降级信号，建议继续核对关键来源。"
+                    : "命中 " + matchedDocuments + " 条证据，回答可用，但仍建议结合验证工作台检查细节。";
+        };
+    }
+
+    private List<String> deriveRecoveryActions(AnswerDraft answerDraft, int matchedDocuments, String degradedReason) {
+        List<String> explicitActions = answerDraft.recoveryActions() == null ? List.of() : answerDraft.recoveryActions();
+        if (!explicitActions.isEmpty()) {
+            return explicitActions;
+        }
+        List<String> actions = new ArrayList<>();
+        if ("LOW".equalsIgnoreCase(answerDraft.confidence()) || matchedDocuments == 0) {
+            actions.add("缩小问题范围后重试");
+            actions.add("先选择一份文档，再重新提问");
+            actions.add("更换关键词后继续追问");
+        }
+        else if ("MEDIUM".equalsIgnoreCase(answerDraft.confidence())) {
+            actions.add("打开验证工作台核对证据");
+            actions.add("如需更准，先限定一份文档后追问");
+        }
+        if (StringUtils.hasText(degradedReason)) {
+            actions.add("重点查看验证工作台中的降级提示");
+        }
+        return actions.stream().distinct().toList();
+    }
+
     private String compactReason(Exception exception) {
         Throwable current = exception;
         while (current.getCause() != null && current.getCause() != current) {
@@ -241,7 +325,72 @@ public class MultiAgentQaOrchestrator {
         if (!StringUtils.hasText(message)) {
             return current.getClass().getSimpleName();
         }
-        return message.length() > 120 ? message.substring(0, 120) + "..." : message;
+        String normalized = message.replaceAll("[\\r\\n]+", " ").trim();
+        String extractedMessage = extractApiMessage(normalized);
+        String readableMessage = StringUtils.hasText(extractedMessage) ? extractedMessage : normalized;
+        String localizedMessage = localizeReason(readableMessage, normalized);
+        return localizedMessage.length() > 48 ? localizedMessage.substring(0, 48) + "..." : localizedMessage;
+    }
+
+    private void logStageFallback(String stageName, String fallbackName, Exception exception) {
+        if (isExpectedRemoteFailure(exception)) {
+            log.warn("{} stage failed, falling back to {}: {}", stageName, fallbackName, compactReason(exception));
+            return;
+        }
+        log.warn("{} stage failed, falling back to {}", stageName, fallbackName, exception);
+    }
+
+    private String extractApiMessage(String message) {
+        Matcher matcher = JSON_MESSAGE_PATTERN.matcher(message);
+        return matcher.find() ? matcher.group(1).trim() : null;
+    }
+
+    private String localizeReason(String readableMessage, String rawMessage) {
+        String lowerReadable = readableMessage.toLowerCase();
+        String lowerRaw = rawMessage.toLowerCase();
+        if (lowerRaw.contains("http 429") || lowerReadable.contains("overloaded")
+                || lowerReadable.contains("rate limit")) {
+            return "模型服务当前繁忙（HTTP 429），请稍后重试";
+        }
+        if (lowerRaw.contains("http 401") || lowerRaw.contains("http 403")
+                || lowerReadable.contains("unauthorized") || lowerReadable.contains("forbidden")) {
+            return "模型服务鉴权失败，请检查密钥或网关配置";
+        }
+        if (lowerReadable.contains("insufficient_quota") || lowerReadable.contains("quota")) {
+            return "模型服务额度不足，请检查当前账号配额";
+        }
+        if (lowerReadable.contains("timeout") || lowerReadable.contains("timed out")) {
+            return "模型服务响应超时，请稍后重试";
+        }
+        if (lowerReadable.contains("connection refused") || lowerReadable.contains("connect timed out")
+                || lowerReadable.contains("unknown host")) {
+            return "模型服务连接失败，请检查网络或网关配置";
+        }
+        return readableMessage;
+    }
+
+    private boolean isExpectedRemoteFailure(Exception exception) {
+        Throwable current = exception;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        String lowerMessage = message.toLowerCase();
+        return lowerMessage.contains("http 429")
+                || lowerMessage.contains("http 401")
+                || lowerMessage.contains("http 403")
+                || lowerMessage.contains("http 5")
+                || lowerMessage.contains("overloaded")
+                || lowerMessage.contains("rate limit")
+                || lowerMessage.contains("quota")
+                || lowerMessage.contains("timeout")
+                || lowerMessage.contains("timed out")
+                || lowerMessage.contains("connection refused")
+                || lowerMessage.contains("connect timed out")
+                || lowerMessage.contains("unknown host");
     }
 
     private record StageSpec(String key, String label) {

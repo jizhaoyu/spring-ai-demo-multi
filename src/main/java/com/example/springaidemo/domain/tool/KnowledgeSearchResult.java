@@ -19,7 +19,7 @@ public record KnowledgeSearchResult(
         return new KnowledgeSearchResult(
                 definition,
                 new ToolCall(definition.name(), inputSummary, now, now, "SKIPPED"),
-                new ToolResult(definition.name(), "当前请求无需检索知识库，已直接跳过。", 0),
+                new ToolResult(definition.name(), "当前请求无需检索知识库，已直接跳过。", 0, 0, 0),
                 List.of()
         );
     }
@@ -33,7 +33,7 @@ public record KnowledgeSearchResult(
         return new KnowledgeSearchResult(
                 definition,
                 new ToolCall(definition.name(), inputSummary, now, now, "FAILED"),
-                new ToolResult(definition.name(), message, 0),
+                new ToolResult(definition.name(), message, 0, 0, 0),
                 List.of()
         );
     }

@@ -51,6 +51,11 @@ class MultiAgentQaOrchestratorTest {
         assertThat(response.conversationId()).isEqualTo("conv-42");
         assertThat(response.answer()).contains("4 个工作小时");
         assertThat(response.sources()).hasSize(1);
+        assertThat(response.documentsScanned()).isEqualTo(3);
+        assertThat(response.matchedDocuments()).isEqualTo(1);
+        assertThat(response.degradedReason()).isNotBlank();
+        assertThat(response.confidenceReason()).contains("证据");
+        assertThat(response.selectedStrategy()).isEqualTo("KB_LOOKUP");
         assertThat(response.auditLog().agentTrace()).hasSize(4);
         assertThat(response.auditLog().agentTrace()).anyMatch(step -> "degraded".equals(step.severity()));
         assertThat(response.auditLog().agentTrace()).anyMatch(step -> "normal".equals(step.severity()));
@@ -110,6 +115,42 @@ class MultiAgentQaOrchestratorTest {
         assertThat(response.traceId()).isNotBlank();
     }
 
+    @Test
+    void answerUsesFriendlyFallbackReasonWhenModelIsOverloaded() {
+        MultiAgentQaOrchestrator orchestrator = new MultiAgentQaOrchestrator(
+                (request, context) -> {
+                    throw overloadedFailure();
+                },
+                searchTool(),
+                (request, context, plan, citations) -> {
+                    throw overloadedFailure();
+                },
+                (request, context, plan, researchBrief, citations) -> {
+                    throw overloadedFailure();
+                },
+                new RecordingConversationMemory(),
+                runtimeStatusService(true)
+        );
+
+        AgentResponse response = orchestrator.answer(new AgentRequest(
+                "登录异常怎么处理？",
+                "conv-overloaded"
+        ));
+
+        assertThat(response.answer()).isNotBlank();
+        assertThat(response.degradedReason()).contains("模型服务当前繁忙（HTTP 429），请稍后重试");
+        assertThat(response.recoveryActions()).isNotEmpty();
+        assertThat(response.auditLog().agentTrace())
+                .filteredOn(step -> "degraded".equals(step.severity()))
+                .extracting(step -> step.summary())
+                .allSatisfy(summary -> {
+                    assertThat(summary).contains("模型服务当前繁忙（HTTP 429），请稍后重试");
+                    assertThat(summary).doesNotContain("{\"error\"");
+                    assertThat(summary).doesNotContain("engine_overloaded_error");
+                    assertThat(summary).doesNotContain("The engine is currently overloaded");
+                });
+    }
+
     private QueryPlannerAgent planner() {
         return (request, context) -> new QueryPlan(
                 "KB_LOOKUP",
@@ -133,7 +174,7 @@ class MultiAgentQaOrchestratorTest {
                 return new KnowledgeSearchResult(
                         new ToolDefinition("knowledge_search", "test"),
                         new ToolCall("knowledge_search", query, now, now, "SUCCESS"),
-                        new ToolResult("knowledge_search", "已检索到 1 条证据片段。", 1),
+                        new ToolResult("knowledge_search", "已检索到 1 条证据片段。", 1, 3, 1),
                         List.of(citation)
                 );
             }
@@ -167,7 +208,17 @@ class MultiAgentQaOrchestratorTest {
         return (request, context, plan, researchBrief, citations) -> new AnswerDraft(
                 "标准支持会在 UTC 08:00 到 18:00 的服务时段内，于 4 个工作小时内响应。来源：支持策略。",
                 "HIGH",
-                List.of("是否还需要查看优先支持的响应时限？")
+                List.of("是否还需要查看优先支持的响应时限？"),
+                List.of()
+        );
+    }
+
+    private RuntimeException overloadedFailure() {
+        return new IllegalStateException(
+                "planner stage failed",
+                new RuntimeException(
+                        "HTTP 429 - {\"error\":{\"message\":\"The engine is currently overloaded, please try again later\",\"type\":\"engine_overloaded_error\"}}"
+                )
         );
     }
 
